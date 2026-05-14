@@ -29,7 +29,7 @@ const TAB_NAMES: Record<ResourceType, string> = {
 function getSheetsConfig() {
   const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
   const clientEmail = process.env.GOOGLE_SHEETS_CLIENT_EMAIL?.trim();
-  const privateKey = process.env.GOOGLE_SHEETS_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  const privateKey = normalizePrivateKey(process.env.GOOGLE_SHEETS_PRIVATE_KEY);
 
   if (!spreadsheetId || !clientEmail || !privateKey) {
     return null;
@@ -40,6 +40,31 @@ function getSheetsConfig() {
     clientEmail,
     privateKey,
   };
+}
+
+function normalizePrivateKey(value?: string) {
+  if (!value) {
+    return "";
+  }
+
+  let key = value.trim();
+
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1);
+  }
+
+  key = key.replace(/\\n/g, "\n").trim();
+
+  if (!key.includes("BEGIN PRIVATE KEY")) {
+    try {
+      key = Buffer.from(key, "base64").toString("utf8").replace(/\\n/g, "\n").trim();
+    } catch {}
+  }
+
+  return key;
 }
 
 function formatDateParts(now = new Date()) {
