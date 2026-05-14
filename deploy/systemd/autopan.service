@@ -1,0 +1,22 @@
+[Unit]
+Description=autoPAN Next.js application
+Wants=network-online.target postgresql.service
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=autopan
+Group=autopan
+WorkingDirectory=/opt/autopan
+EnvironmentFile=-/etc/autopan/autopan.env
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+ExecStart=/usr/bin/npm run start -- -p 3000 -H 127.0.0.1
+Restart=always
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

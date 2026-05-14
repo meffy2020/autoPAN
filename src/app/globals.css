@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #191f28;
+  --surface: #f9fafb;
+  --surface-strong: #ffffff;
+  --surface-soft: #f2f4f6;
+  --muted: #6b7684;
+  --muted-strong: #4e5968;
+  --line: #e5e8eb;
+  --line-strong: #d1d6db;
+  --accent: #0ea5e9;
+  --accent-strong: #2272eb;
+  --accent-soft: #e8f3ff;
+  --success: #03b26c;
+  --warning: #fe9800;
+  --danger: #f04452;
+  --shadow-soft: 0 1px 3px rgba(15, 23, 42, 0.04);
+  --shadow-card: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --font-sans-stack:
+    "Toss Product Sans",
+    "Tossface",
+    "SF Pro KR",
+    "SF Pro Display",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Apple SD Gothic Neo",
+    Roboto,
+    "Noto Sans KR",
+    sans-serif;
+  --font-mono-stack: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans-stack);
+  --font-heading: var(--font-sans-stack);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100%;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans-stack);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+a,
+button,
+input,
+select,
+textarea {
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+button {
+  cursor: pointer;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: color-mix(in srgb, var(--muted) 65%, transparent);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-sans-stack);
+}
+
+::selection {
+  background: rgba(14, 165, 233, 0.16);
+  color: var(--foreground);
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.surface-card {
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-card);
+}
+
+.surface-soft {
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.toss-input {
+  width: 100%;
+  border: 0;
+  border-bottom: 2px solid var(--line);
+  background: transparent;
+  color: var(--foreground);
+  padding: 12px 0 10px;
+  outline: none;
+}
+
+.toss-input:focus {
+  border-bottom-color: var(--accent);
+}
+
+.toss-select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 20px) calc(50% - 2px),
+    calc(100% - 14px) calc(50% - 2px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  color: var(--foreground);
+  min-height: 44px;
+  line-height: 1.35;
+  padding: 0 40px 0 14px;
+  box-shadow: var(--shadow-soft);
+  outline: none;
+}
+
+.toss-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.toss-select::-ms-expand {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,907 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>autoPAN 기본 설계서</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --paper: #ffffff;
+        --ink: #20242c;
+        --muted: #626b7a;
+        --line: #d9dee7;
+        --accent: #1b6b68;
+        --accent-2: #d75f35;
+        --accent-3: #3867b7;
+        --soft: #e8f3f2;
+        --soft-2: #fff1e9;
+        --soft-3: #edf2ff;
+        --shadow: 0 16px 42px rgba(29, 39, 56, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR",
+          "Apple SD Gothic Neo", Arial, sans-serif;
+        line-height: 1.65;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .page {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 36px 24px 72px;
+      }
+
+      .hero {
+        min-height: 420px;
+        display: grid;
+        align-items: end;
+        border-radius: 0;
+        color: #fff;
+        overflow: hidden;
+        background:
+          linear-gradient(90deg, rgba(12, 28, 35, 0.92), rgba(12, 28, 35, 0.58)),
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='620' viewBox='0 0 1200 620'%3E%3Crect width='1200' height='620' fill='%23293442'/%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.16' stroke-width='4'%3E%3Crect x='82' y='100' width='210' height='132' rx='10'/%3E%3Crect x='334' y='100' width='210' height='132' rx='10'/%3E%3Crect x='586' y='100' width='210' height='132' rx='10'/%3E%3Crect x='838' y='100' width='210' height='132' rx='10'/%3E%3Cpath d='M96 292h956M96 370h956M96 448h956'/%3E%3Cpath d='M182 270v206M390 270v206M598 270v206M806 270v206M1014 270v206'/%3E%3C/g%3E%3Cg fill='%23ffffff' fill-opacity='.2'%3E%3Ccircle cx='188' cy='166' r='28'/%3E%3Ccircle cx='440' cy='166' r='28'/%3E%3Ccircle cx='692' cy='166' r='28'/%3E%3Ccircle cx='944' cy='166' r='28'/%3E%3C/g%3E%3C/svg%3E");
+        background-size: cover;
+        background-position: center;
+        padding: 48px;
+        box-shadow: var(--shadow);
+      }
+
+      .hero h1 {
+        max-width: 760px;
+        margin: 0 0 12px;
+        font-size: 52px;
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      .hero p {
+        max-width: 720px;
+        margin: 0;
+        color: rgba(255, 255, 255, 0.86);
+        font-size: 19px;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 28px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        padding: 6px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        background: rgba(255, 255, 255, 0.12);
+        font-size: 13px;
+      }
+
+      section {
+        margin-top: 28px;
+        padding: 28px;
+        background: var(--paper);
+        box-shadow: var(--shadow);
+      }
+
+      h2 {
+        margin: 0 0 16px;
+        font-size: 26px;
+        line-height: 1.25;
+      }
+
+      h3 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 0 0 14px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .cols-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .cols-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        background: #fff;
+        padding: 18px;
+        border-radius: 8px;
+      }
+
+      .card.accent {
+        border-color: #b9d8d5;
+        background: var(--soft);
+      }
+
+      .card.warning {
+        border-color: #ffd4bd;
+        background: var(--soft-2);
+      }
+
+      .card.info {
+        border-color: #cbd8f9;
+        background: var(--soft-3);
+      }
+
+      ul,
+      ol {
+        margin: 0;
+        padding-left: 20px;
+      }
+
+      li + li {
+        margin-top: 6px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+        font-size: 14px;
+      }
+
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 11px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #f0f3f7;
+        font-weight: 700;
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: #eef1f5;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(120px, 1fr));
+        gap: 12px;
+        align-items: stretch;
+      }
+
+      .step {
+        position: relative;
+        min-height: 118px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 8px;
+      }
+
+      .step::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        right: -11px;
+        width: 10px;
+        height: 2px;
+        background: var(--accent);
+      }
+
+      .step:last-child::after {
+        display: none;
+      }
+
+      .step strong {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--accent);
+      }
+
+      .class-diagram {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .class-box {
+        border: 2px solid #283241;
+        background: #fff;
+        border-radius: 6px;
+        overflow: hidden;
+      }
+
+      .class-title {
+        padding: 10px 12px;
+        background: #283241;
+        color: #fff;
+        font-weight: 700;
+      }
+
+      .class-body {
+        padding: 12px;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 13px;
+        line-height: 1.55;
+        color: #303846;
+      }
+
+      .state-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .tablet-flow {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+        gap: 18px;
+        align-items: stretch;
+      }
+
+      .tablet-frame {
+        border: 12px solid #283241;
+        border-radius: 24px;
+        background: #f8fafc;
+        min-height: 430px;
+        padding: 18px;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+      }
+
+      .tablet-topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        min-height: 34px;
+        margin-bottom: 22px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .back-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 30px;
+        padding: 4px 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .tablet-step-screen {
+        display: grid;
+        align-content: center;
+        min-height: 320px;
+      }
+
+      .tablet-step-screen h3 {
+        margin-bottom: 8px;
+        font-size: 28px;
+        line-height: 1.25;
+      }
+
+      .tablet-options {
+        display: grid;
+        gap: 12px;
+        margin-top: 22px;
+      }
+
+      .tablet-option {
+        min-height: 62px;
+        padding: 16px 18px;
+        border: 2px solid #cfd6e2;
+        border-radius: 8px;
+        background: #fff;
+        font-weight: 800;
+        font-size: 17px;
+      }
+
+      .rule-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .rule-item {
+        border-left: 4px solid var(--accent);
+        background: #fbfcfd;
+        padding: 14px 16px;
+      }
+
+      .state-line {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #eef1f5;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .arrow {
+        color: var(--muted);
+      }
+
+      .architecture {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 16px;
+      }
+
+      .layer {
+        border-left: 5px solid var(--accent);
+        background: #fbfcfd;
+        padding: 16px;
+      }
+
+      .layer:nth-child(2) {
+        border-left-color: var(--accent-3);
+      }
+
+      .layer:nth-child(3) {
+        border-left-color: var(--accent-2);
+      }
+
+      .footer-note {
+        margin-top: 28px;
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+      }
+
+      @media (max-width: 900px) {
+        .hero {
+          min-height: 360px;
+          padding: 32px 24px;
+        }
+
+        .hero h1 {
+          font-size: 36px;
+        }
+
+        .cols-2,
+        .cols-3,
+        .flow,
+        .tablet-flow,
+        .class-diagram,
+        .state-grid,
+        .architecture {
+          grid-template-columns: 1fr;
+        }
+
+        .step::after {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <div>
+          <h1>autoPAN 기본 설계서</h1>
+          <p>
+            나놀다판 현장 운영을 종이 접수와 수기 스프레드시트에서 키오스크,
+            관리자 화면, 대기 보드 중심의 운영 시스템으로 전환하기 위한 요구사항,
+            기능정의, 객체지향 설계, 상태 흐름을 한 화면에서 설명한다.
+          </p>
+          <div class="meta">
+            <span class="badge">대상: 노원청소년센터 나놀다판</span>
+            <span class="badge">범위: v1 운영 자동화</span>
+            <span class="badge">구현: Next.js + TypeScript</span>
+            <span class="badge">저장소: 메모리 데모 + PostgreSQL 확장 준비</span>
+          </div>
+        </div>
+      </header>
+
+      <section>
+        <h2>1. 요구사항 요약</h2>
+        <div class="grid cols-3">
+          <article class="card accent">
+            <h3>문제 정의</h3>
+            <ul>
+              <li>접수, 대기, 결제, 입장, 종료 정보가 분리되어 있다.</li>
+              <li>학생은 다음 행동을 바로 알기 어렵다.</li>
+              <li>관리자는 대기열과 현재 이용 상태를 동시에 보기 어렵다.</li>
+              <li>호출과 안내가 사람 의존적이라 누락 가능성이 있다.</li>
+            </ul>
+          </article>
+          <article class="card info">
+            <h3>제품 목적</h3>
+            <ul>
+              <li>키오스크에서 학생 또는 보호자가 직접 접수한다.</li>
+              <li>유료 콘텐츠와 공간 이용을 명확히 분리한다.</li>
+              <li>자원별 대기열, 호출, 결제 확인, 시작, 종료를 연결한다.</li>
+              <li>관리자는 서울시 결제시스템 처리 결과만 운영 상태에 반영한다.</li>
+            </ul>
+          </article>
+          <article class="card warning">
+            <h3>운영 제약</h3>
+            <ul>
+              <li>실제 결제 승인은 시스템이 직접 수행하지 않는다.</li>
+              <li>결제와 세션 시작은 반드시 별도 단계다.</li>
+              <li>공간 이용은 대기열, 세션, 매출 집계에서 제외한다.</li>
+              <li>키오스크는 30초 무반응 시 첫 화면으로 복귀한다.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>2. 기능 정의</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>기능 영역</th>
+              <th>주요 기능</th>
+              <th>구현 위치</th>
+              <th>우선순위</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>회원</td>
+              <td>신규 회원 등록, 재방문 회원 검색, 중복 등록 완화, 마지막 방문 시각 기록</td>
+              <td><code>Member</code>, <code>enqueueVisit()</code>, <code>registerSpaceVisit()</code></td>
+              <td>P1</td>
+            </tr>
+            <tr>
+              <td>키오스크 접수</td>
+              <td>첫 방문/재방문 분기, 자원 선택, 시간권 선택, 대기번호 발급</td>
+              <td><code>/kiosk</code>, <code>enqueueVisit</code>, <code>registerSpaceVisit</code></td>
+              <td>P1</td>
+            </tr>
+            <tr>
+              <td>대기열</td>
+              <td>PC/닌텐도/플레이스테이션별 FIFO 대기, 입장 가능 승급, 노쇼, 재대기</td>
+              <td><code>QueueEntry</code>, <code>reconcileState()</code>, <code>markNoShow()</code></td>
+              <td>P1/P2</td>
+            </tr>
+            <tr>
+              <td>관리자 운영</td>
+              <td>결제 기록, 자리 배정, 세션 시작/종료, 연장, 운영 설정</td>
+              <td><code>/admin</code>, <code>recordPayment()</code>, <code>startSession()</code></td>
+              <td>P1/P2</td>
+            </tr>
+            <tr>
+              <td>대기 보드/TTS</td>
+              <td>입장 가능 번호 표시, 브라우저 TTS 호출, 호출 이벤트 확인 처리</td>
+              <td><code>/board</code>, <code>TTSEvent</code>, <code>ackTtsEvent()</code></td>
+              <td>P2</td>
+            </tr>
+            <tr>
+              <td>리포트</td>
+              <td>방문 수, 매출, 재방문율, 자원별 대기/이용 시간/점유율 계산</td>
+              <td><code>DailyReport</code>, <code>buildSystemSnapshot()</code></td>
+              <td>P2/P3</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>3. 사용자 흐름</h2>
+        <div class="flow">
+          <div class="step">
+            <strong>1. 접수 시작</strong>
+            첫 방문 또는 재방문을 선택하고 회원 정보를 확인한다.
+          </div>
+          <div class="step">
+            <strong>2. 자원 선택</strong>
+            PC, 닌텐도, 플레이스테이션, 공간 이용 중 하나를 선택한다.
+          </div>
+          <div class="step">
+            <strong>3. 대기 판단</strong>
+            유료 콘텐츠는 빈 자리와 기존 대기열을 기준으로 즉시 이용 또는 대기 등록으로 나뉜다.
+          </div>
+          <div class="step">
+            <strong>4. 관리자 처리</strong>
+            관리자가 서울시 결제시스템에서 결제 후 시스템에 결제 기록과 시작 처리를 남긴다.
+          </div>
+          <div class="step">
+            <strong>5. 종료/리포트</strong>
+            세션 종료, 연장, 노쇼, 일마감 리포트가 운영 데이터로 축적된다.
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>4. 태블릿 키오스크 접수 방식</h2>
+        <div class="tablet-flow">
+          <div class="tablet-frame" aria-label="태블릿 키오스크 단계 화면 예시">
+            <div class="tablet-topbar">
+              <span class="back-control">← 뒤로</span>
+              <span>2 / 5</span>
+            </div>
+            <div class="tablet-step-screen">
+              <p class="muted">현재 단계</p>
+              <h3>어떤 이용을 할까요?</h3>
+              <p class="muted">
+                태블릿에서는 이전 단계의 입력 영역을 아래에 남기지 않고, 다음
+                단계 화면으로 완전히 전환한다.
+              </p>
+              <div class="tablet-options">
+                <div class="tablet-option">PC 이용</div>
+                <div class="tablet-option">닌텐도 이용</div>
+                <div class="tablet-option">플레이스테이션 이용</div>
+                <div class="tablet-option">공간 이용</div>
+              </div>
+            </div>
+          </div>
+          <div class="rule-list">
+            <article class="rule-item">
+              <h3>단일 단계 화면</h3>
+              <p>
+                접수 흐름은 여러 입력 묶음을 한 화면에 동시에 노출하지 않는다.
+                사용자가 다음을 누르면 이전 단계 아래로 새 단계가 붙는 방식이
+                아니라, 현재 화면이 다음 단계 화면으로 교체된다.
+              </p>
+            </article>
+            <article class="rule-item">
+              <h3>상단 작은 뒤로가기</h3>
+              <p>
+                이전 단계로 돌아가는 기능은 화면 상단에 작은 보조 버튼으로 둔다.
+                주 동선은 항상 현재 단계의 큰 선택 버튼 또는 다음 버튼이 되도록
+                한다.
+              </p>
+            </article>
+            <article class="rule-item">
+              <h3>태블릿 터치 기준</h3>
+              <p>
+                선택지는 손가락으로 누르기 쉬운 큰 버튼으로 만들고, 한 화면의
+                선택지는 2개에서 4개 수준으로 제한한다. 긴 설명보다 선택 가능한
+                행동을 먼저 보여준다.
+              </p>
+            </article>
+            <article class="rule-item">
+              <h3>입력값 유지</h3>
+              <p>
+                뒤로 이동하면 직전 단계에서 입력한 값은 유지한다. 다만 30초
+                무반응 자동 복귀가 발생하면 미완료 접수 값은 버리고 첫 화면으로
+                돌아간다.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>5. 화면 설계</h2>
+        <div class="grid cols-3">
+          <article class="card">
+            <h3>홈 <code>/</code></h3>
+            <ul>
+              <li>오늘 운영 상태 요약</li>
+              <li>키오스크, 관리자, 보드 화면 진입</li>
+              <li>현재 활성 세션과 대기 규모 확인</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>키오스크 <code>/kiosk</code></h3>
+            <ul>
+              <li>학생/보호자 셀프 접수</li>
+              <li>한 화면에는 현재 접수 단계 하나만 표시</li>
+              <li>다음 단계 진입 시 화면 전체를 다음 단계로 전환</li>
+              <li>이전 단계 이동은 상단의 작은 뒤로가기 버튼으로 처리</li>
+              <li>30초 무반응 자동 복귀</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>관리자 <code>/admin</code></h3>
+            <ul>
+              <li>대기열, 호출, 결제 기록, 시작/종료 관리</li>
+              <li>연장, 노쇼, 재대기 처리</li>
+              <li>리포트와 운영 설정 확인</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>6. 객체지향적 요소</h2>
+        <p class="muted">
+          현재 구현은 TypeScript 인터페이스와 서버 도메인 함수 중심이다. 각
+          인터페이스가 엔터티 역할을 하고, 저장소와 상태 변경 함수가 책임을
+          분리한다.
+        </p>
+        <div class="class-diagram">
+          <div class="class-box">
+            <div class="class-title">Member</div>
+            <div class="class-body">
+              id: string<br />
+              name: string<br />
+              gradeOrAge: string<br />
+              guardianPhone: string<br />
+              lastVisitedAt?: string
+            </div>
+          </div>
+          <div class="class-box">
+            <div class="class-title">Visit</div>
+            <div class="class-body">
+              memberId: string<br />
+              ticketNumber: string<br />
+              resourceType: ResourceType<br />
+              pricingRuleId: string<br />
+              status: VisitStatus
+            </div>
+          </div>
+          <div class="class-box">
+            <div class="class-title">QueueEntry</div>
+            <div class="class-body">
+              visitId: string<br />
+              resourceType: ResourceType<br />
+              status: QueueStatus<br />
+              position: number<br />
+              readyAt?: string
+            </div>
+          </div>
+          <div class="class-box">
+            <div class="class-title">Session</div>
+            <div class="class-body">
+              visitId: string<br />
+              resourceId: string<br />
+              plannedMinutes: number<br />
+              extensionMinutes: number<br />
+              status: SessionStatus
+            </div>
+          </div>
+          <div class="class-box">
+            <div class="class-title">Payment</div>
+            <div class="class-body">
+              visitId: string<br />
+              amount: number<br />
+              method: PaymentMethod<br />
+              phase: initial | extension<br />
+              recordedBy: string
+            </div>
+          </div>
+          <div class="class-box">
+            <div class="class-title">StoreRepository</div>
+            <div class="class-body">
+              read(): StoreState<br />
+              mutate(mutator): T<br />
+              reset(): void<br />
+              구현체: DemoRepository
+            </div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>객체지향 개념</th>
+              <th>현재 설계에서의 대응</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>캡슐화</td>
+              <td>상태 변경은 <code>store.ts</code>의 함수로 모아 직접 배열 조작을 화면 컴포넌트에 노출하지 않는다.</td>
+            </tr>
+            <tr>
+              <td>추상화</td>
+              <td><code>StoreRepository</code> 인터페이스가 저장소 접근을 추상화하여 메모리 저장소에서 PostgreSQL 저장소로 바꿀 수 있다.</td>
+            </tr>
+            <tr>
+              <td>단일 책임</td>
+              <td>도메인 타입은 <code>domain.ts</code>, 상태 계산은 <code>state.ts</code>, 변경 유스케이스는 <code>store.ts</code>, API 라우팅은 <code>route.ts</code>에 둔다.</td>
+            </tr>
+            <tr>
+              <td>확장성</td>
+              <td>자원 종류, 요금제, TTS 이벤트, 결제 단계가 타입으로 분리되어 v2 기능을 추가하기 쉽다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>7. 상태 전이 다이어그램</h2>
+        <div class="state-grid">
+          <article class="card accent">
+            <h3>방문 상태</h3>
+            <div class="state-line">
+              <span class="pill">queued</span>
+              <span class="arrow">→</span>
+              <span class="pill">awaiting_payment</span>
+              <span class="arrow">→</span>
+              <span class="pill">in_session</span>
+              <span class="arrow">→</span>
+              <span class="pill">completed</span>
+            </div>
+            <p class="muted">예외: <code>canceled</code>, <code>no_show</code></p>
+          </article>
+          <article class="card info">
+            <h3>대기 상태</h3>
+            <div class="state-line">
+              <span class="pill">waiting</span>
+              <span class="arrow">→</span>
+              <span class="pill">ready</span>
+              <span class="arrow">→</span>
+              <span class="pill">seated</span>
+            </div>
+            <p class="muted">예외: <code>ready → no_show → waiting</code></p>
+          </article>
+          <article class="card warning">
+            <h3>세션 상태</h3>
+            <div class="state-line">
+              <span class="pill">active</span>
+              <span class="arrow">→</span>
+              <span class="pill">ended</span>
+            </div>
+            <p class="muted">연장은 상태 변경 없이 종료 예정 시각과 누적 시간을 갱신한다.</p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>8. 시스템 구조</h2>
+        <div class="architecture">
+          <article class="layer">
+            <h3>Presentation Layer</h3>
+            <ul>
+              <li><code>/kiosk</code>: 접수 전용 UI</li>
+              <li><code>/admin</code>: 운영자 관리 UI</li>
+              <li><code>/board</code>: 대기 번호와 TTS 출력</li>
+              <li><code>useLiveSnapshot</code>: 3~5초 폴링 동기화</li>
+            </ul>
+          </article>
+          <article class="layer">
+            <h3>Application Layer</h3>
+            <ul>
+              <li><code>GET /api/state</code>: 전체 운영 스냅샷 조회</li>
+              <li><code>POST /api/mutations</code>: 상태 변경 명령 처리</li>
+              <li><code>validation.ts</code>: Zod 입력 검증</li>
+              <li><code>store.ts</code>: 접수, 결제, 시작, 종료 유스케이스</li>
+            </ul>
+          </article>
+          <article class="layer">
+            <h3>Domain/Data Layer</h3>
+            <ul>
+              <li><code>domain.ts</code>: 엔터티와 상태 타입</li>
+              <li><code>state.ts</code>: 티켓번호, 대기 승급, 리포트 계산</li>
+              <li><code>repository.ts</code>: 저장소 추상화</li>
+              <li><code>schema.ts</code>: PostgreSQL 확장용 Drizzle 스키마</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>9. 데이터 관계 다이어그램</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>관계</th>
+              <th>설명</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Member 1 → N Visit</code></td>
+              <td>한 회원은 여러 번 방문할 수 있고, 방문 단위로 접수와 이용 흐름이 시작된다.</td>
+            </tr>
+            <tr>
+              <td><code>Visit 0..1 → QueueEntry</code></td>
+              <td>공간 이용 또는 즉시 이용은 대기 엔트리가 없을 수 있고, 대기 발생 시 하나의 대기 엔트리가 연결된다.</td>
+            </tr>
+            <tr>
+              <td><code>Visit 0..1 → Session</code></td>
+              <td>관리자가 결제 확인 후 시작 처리한 방문만 세션을 가진다.</td>
+            </tr>
+            <tr>
+              <td><code>Visit 0..N → Payment</code></td>
+              <td>최초 결제, 연장 결제, 조정 기록이 같은 방문에 누적된다.</td>
+            </tr>
+            <tr>
+              <td><code>Resource 1 → N Session</code></td>
+              <td>한 자원은 시간에 따라 여러 세션을 가질 수 있지만 같은 시각에는 활성 세션 하나만 허용한다.</td>
+            </tr>
+            <tr>
+              <td><code>Visit 0..N → TTSEvent</code></td>
+              <td>입장 가능, 종료 임박, 시간 종료 등의 호출 이벤트가 방문 기준으로 생성된다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>10. 주요 시퀀스</h2>
+        <div class="grid cols-2">
+          <article class="card">
+            <h3>유료 콘텐츠 접수</h3>
+            <ol>
+              <li>키오스크가 회원 입력 또는 기존 회원 선택을 받는다.</li>
+              <li>각 단계는 태블릿 한 화면 안에서 교체되며 이전 단계 UI는 아래에 남기지 않는다.</li>
+              <li><code>enqueueVisit</code>이 방문과 티켓번호를 만든다.</li>
+              <li>열린 대기와 빈 자원을 기준으로 즉시 이용 또는 대기 등록을 결정한다.</li>
+              <li>대기 등록이면 <code>QueueEntry</code>를 생성하고 FIFO 순서를 재계산한다.</li>
+              <li>관리자 화면과 보드는 다음 폴링에서 같은 스냅샷을 확인한다.</li>
+            </ol>
+          </article>
+          <article class="card">
+            <h3>결제 후 시작</h3>
+            <ol>
+              <li>관리자가 외부 서울시 결제시스템에서 결제를 직접 처리한다.</li>
+              <li><code>recordPayment</code>로 운영용 결제 기록을 남긴다.</li>
+              <li><code>startSession</code> 또는 <code>startWalkInSession</code>이 자리 중복과 결제 기록을 확인한다.</li>
+              <li>세션 시작 시 종료 예정 시각을 계산하고 방문 상태를 <code>in_session</code>으로 바꾼다.</li>
+              <li>종료, 연장, 노쇼 처리 결과는 활동 로그와 리포트에 반영된다.</li>
+            </ol>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>11. 수용 기준</h2>
+        <div class="grid cols-2">
+          <article class="card accent">
+            <h3>사용자 관점</h3>
+            <ul>
+              <li>학생 또는 보호자는 키오스크에서 스스로 접수할 수 있다.</li>
+              <li>키오스크는 한 화면에 현재 단계 하나만 보여준다.</li>
+              <li>다음 단계는 이전 단계 아래에 쌓이지 않고 화면 전환으로 표시된다.</li>
+              <li>뒤로가기는 상단의 작은 보조 버튼으로 제공된다.</li>
+              <li>접수 완료 후 즉시 이용인지 대기인지 명확하게 안내한다.</li>
+              <li>30초 무반응 시 첫 화면으로 돌아간다.</li>
+            </ul>
+          </article>
+          <article class="card info">
+            <h3>운영자 관점</h3>
+            <ul>
+              <li>자원별 대기열과 현재 이용 상태를 한 화면에서 확인한다.</li>
+              <li>결제 기록 없이는 세션 시작이 불가능하다.</li>
+              <li>빈 자리가 생기면 다음 대기자를 호출할 수 있다.</li>
+              <li>일마감 리포트에서 방문, 매출, 이용률을 확인한다.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <p class="footer-note">
+        기준 문서: <code>docs/product-spec.md</code>, <code>Readme.md</code>,
+        <code>src/lib/domain.ts</code>, <code>src/lib/server/store.ts</code>,
+        <code>src/lib/server/repository.ts</code>
+      </p>
+    </main>
+  </body>
+</html>
