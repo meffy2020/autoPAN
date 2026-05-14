@@ -46,27 +46,28 @@ type KioskResourceChoice = ResourceType | "space";
 
 type MemberFormState = {
   name: string;
-  birthYear: string;
+  schoolName: string;
+  birthDate: string;
+  gender: "male" | "female" | "";
   guardianPhone: string;
 };
 
 const DEFAULT_FORM: MemberFormState = {
   name: "",
-  birthYear: "",
+  schoolName: "",
+  birthDate: "",
+  gender: "",
   guardianPhone: "",
 };
 
 const CURRENT_YEAR = new Date().getFullYear();
-const BIRTH_YEAR_OPTIONS = Array.from({ length: 13 }, (_, index) =>
-  String(CURRENT_YEAR - 7 - index),
-);
 
 function formatMemberAgeLabel(value: string) {
   return /^\d{4}$/.test(value) ? `${value}년생` : value;
 }
 
-function getKoreanAgeLabel(year: string) {
-  return `${CURRENT_YEAR - Number(year) + 1}세`;
+function getBirthYear(value: string) {
+  return value.slice(0, 4);
 }
 
 const RESOURCE_CARD_THEME: Record<
@@ -301,7 +302,13 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     tab === "existing"
       ? Boolean(selectedMember)
       : tab === "new"
-        ? Boolean(formState.name && formState.birthYear && formState.guardianPhone)
+        ? Boolean(
+            formState.name &&
+              formState.schoolName &&
+              formState.birthDate &&
+              formState.gender &&
+              formState.guardianPhone,
+          )
         : false;
   const canSubmit = Boolean(identityReady && selectedResourceType && effectivePricingRuleId);
   const resourceSummaries = {
@@ -407,8 +414,13 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             : {
                 member: {
                   name: formState.name,
-                  gradeOrAge: formState.birthYear,
+                  gradeOrAge: getBirthYear(formState.birthDate),
                   guardianPhone: formState.guardianPhone,
+                },
+                sheetMetadata: {
+                  schoolName: formState.schoolName,
+                  birthDate: formState.birthDate,
+                  gender: formState.gender,
                 },
                 resourceType: selectedResourceType,
                 pricingRuleId: effectivePricingRuleId,
@@ -437,8 +449,13 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               : {
                 member: {
                     name: formState.name,
-                    gradeOrAge: formState.birthYear,
+                    gradeOrAge: getBirthYear(formState.birthDate),
                     guardianPhone: formState.guardianPhone,
+                  },
+                  sheetMetadata: {
+                    schoolName: formState.schoolName,
+                    birthDate: formState.birthDate,
+                    gender: formState.gender,
                   },
                 };
 
@@ -615,23 +632,60 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           />
 
           <label className="block text-[16px] font-semibold text-[color:var(--foreground)]">
-            출생연도
+            학교명
           </label>
-          <select
-            value={formState.birthYear}
+          <input
+            value={formState.schoolName}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, schoolName: event.target.value }))
+            }
+            className="toss-input text-[16px]"
+            placeholder="예: 판초등학교"
+          />
+
+          <label className="block text-[16px] font-semibold text-[color:var(--foreground)]">
+            생년월일
+          </label>
+          <input
+            type="date"
+            value={formState.birthDate}
+            min={`${CURRENT_YEAR - 25}-01-01`}
+            max={`${CURRENT_YEAR}-12-31`}
             onChange={(event) => {
-              setFormState((current) => ({ ...current, birthYear: event.target.value }));
+              setFormState((current) => ({ ...current, birthDate: event.target.value }));
               setNotice("");
             }}
-            className="toss-select min-h-[58px] text-[17px] font-semibold"
-          >
-            <option value="">출생연도를 선택해 주세요</option>
-            {BIRTH_YEAR_OPTIONS.map((year) => (
-              <option key={year} value={year}>
-                {year}년생 · {getKoreanAgeLabel(year)}
-              </option>
+            className="toss-input min-h-[58px] text-[17px] font-semibold"
+          />
+
+          <label className="block text-[16px] font-semibold text-[color:var(--foreground)]">
+            성별
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              ["male", "남"],
+              ["female", "여"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  setFormState((current) => ({
+                    ...current,
+                    gender: value as MemberFormState["gender"],
+                  }));
+                  setNotice("");
+                }}
+                className={`rounded-[18px] border px-5 py-4 text-[17px] font-bold transition ${
+                  formState.gender === value
+                    ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
+                    : "border-[color:var(--line)] bg-[color:var(--surface)] text-[color:var(--foreground)]"
+                }`}
+              >
+                {label}
+              </button>
             ))}
-          </select>
+          </div>
 
           <label className="block text-[16px] font-semibold text-[color:var(--foreground)]">
             보호자 연락처
@@ -750,7 +804,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               {selectedMember?.name ?? formState.name}
             </div>
             <div className="mt-1 text-sm text-[color:var(--muted)]">
-              {formatMemberAgeLabel(selectedMember?.gradeOrAge ?? formState.birthYear)}
+              {formatMemberAgeLabel(
+                selectedMember?.gradeOrAge ?? getBirthYear(formState.birthDate),
+              )}
             </div>
           </div>
           <div>

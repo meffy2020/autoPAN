@@ -9,6 +9,18 @@ import {
 const CURRENT_YEAR = new Date().getFullYear();
 const MIN_BIRTH_YEAR = 1990;
 
+export const kioskGenderSchema = z.enum(["male", "female"]);
+
+export const kioskSheetMetadataSchema = z.object({
+  schoolName: z.string().trim().max(40, "학교명은 40자 이하로 입력해 주세요.").optional(),
+  birthDate: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "생년월일을 다시 확인해 주세요.")
+    .optional(),
+  gender: kioskGenderSchema.optional(),
+});
+
 export const memberInputSchema = z.object({
   name: z.string().trim().min(1, "이름을 입력해 주세요."),
   gradeOrAge: z
@@ -33,12 +45,14 @@ export const enqueueVisitSchema = z.object({
   resourceType: z.enum(RESOURCE_TYPES),
   pricingRuleId: z.string().trim().min(1),
   note: z.string().trim().max(120).optional(),
+  sheetMetadata: kioskSheetMetadataSchema.optional(),
 });
 
 export const registerSpaceVisitSchema = z.object({
   existingMemberId: z.string().trim().optional(),
   member: memberInputSchema.optional(),
   note: z.string().trim().max(120).optional(),
+  sheetMetadata: kioskSheetMetadataSchema.optional(),
 });
 
 export const recordPaymentSchema = z.object({

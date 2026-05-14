@@ -6,6 +6,7 @@ import {
   enqueueVisit,
   endSession,
   extendSession,
+  getSnapshot,
   manualCallQueueEntry,
   markNoShow,
   moveSession,
@@ -30,6 +31,7 @@ import {
   startWalkInSessionSchema,
   updateSettingsSchema,
 } from "@/lib/validation";
+import { appendKioskSubmissionToSheet } from "@/lib/server/google-sheets";
 
 export const dynamic = "force-dynamic";
 
@@ -43,12 +45,48 @@ export async function POST(request: Request) {
     let result: unknown;
 
     switch (body.action) {
-      case "enqueueVisit":
-        result = enqueueVisit(enqueueVisitSchema.parse(body.payload));
+      case "enqueueVisit": {
+        const payload = enqueueVisitSchema.parse(body.payload);
+        const visitResult = enqueueVisit(payload);
+        result = visitResult;
+        const snapshot = getSnapshot();
+        const visit = snapshot.visits.find((item) => item.id === visitResult.visitId);
+        const member = visit
+          ? snapshot.members.find((item) => item.id === visit.memberId)
+          : undefined;
+        const pricingRule = snapshot.pricingRules.find(
+          (item) => item.id === payload.pricingRuleId,
+        );
+
+        if (member) {
+          await appendKioskSubmissionToSheet({
+            member,
+            metadata: payload.sheetMetadata,
+            resourceType: payload.resourceType,
+            pricingRule,
+          });
+        }
         break;
-      case "registerSpaceVisit":
-        result = registerSpaceVisit(registerSpaceVisitSchema.parse(body.payload));
+      }
+      case "registerSpaceVisit": {
+        const payload = registerSpaceVisitSchema.parse(body.payload);
+        const visitResult = registerSpaceVisit(payload);
+        result = visitResult;
+        const snapshot = getSnapshot();
+        const visit = snapshot.visits.find((item) => item.id === visitResult.visitId);
+        const member = visit
+          ? snapshot.members.find((item) => item.id === visit.memberId)
+          : undefined;
+
+        if (member) {
+          await appendKioskSubmissionToSheet({
+            member,
+            metadata: payload.sheetMetadata,
+            resourceType: "space",
+          });
+        }
         break;
+      }
       case "recordPayment":
         result = recordPayment(recordPaymentSchema.parse(body.payload));
         break;
