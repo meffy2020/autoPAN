@@ -23,7 +23,14 @@ const TAB_NAMES: Record<ResourceType, string> = {
   pc: "컴퓨터",
   nintendo: "닌텐도",
   playstation: "플스",
-  space: "무료",
+  space: "무료콘텐츠",
+};
+
+const TAB_ENV_NAMES: Record<ResourceType, string> = {
+  pc: "GOOGLE_SHEETS_PC_TAB_NAME",
+  nintendo: "GOOGLE_SHEETS_NINTENDO_TAB_NAME",
+  playstation: "GOOGLE_SHEETS_PLAYSTATION_TAB_NAME",
+  space: "GOOGLE_SHEETS_FREE_TAB_NAME",
 };
 
 function getSheetsConfig() {
@@ -65,6 +72,10 @@ function normalizePrivateKey(value?: string) {
   }
 
   return key;
+}
+
+function getTabName(resourceType: ResourceType) {
+  return process.env[TAB_ENV_NAMES[resourceType]]?.trim() || TAB_NAMES[resourceType];
 }
 
 function formatDateParts(now = new Date()) {
@@ -152,7 +163,7 @@ export async function appendKioskSubmissionToSheet(submission: KioskSheetSubmiss
     scopes: ["https://www.googleapis.com/auth/spreadsheets"],
   });
   const sheets = google.sheets({ version: "v4", auth });
-  const tabName = TAB_NAMES[submission.resourceType];
+  const tabName = getTabName(submission.resourceType);
   const birthDate = submission.metadata?.birthDate ?? submission.member.gradeOrAge;
   const row = [
     date,
@@ -170,7 +181,7 @@ export async function appendKioskSubmissionToSheet(submission: KioskSheetSubmiss
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: config.spreadsheetId,
-    range: `'${tabName}'!A:T`,
+    range: tabName,
     valueInputOption: "USER_ENTERED",
     insertDataOption: "INSERT_ROWS",
     requestBody: {
