@@ -133,6 +133,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, result });
   } catch (error) {
     if (error instanceof ZodError) {
+      console.error("Mutation validation failed.", error.issues);
       return NextResponse.json(
         {
           error: error.issues[0]?.message ?? "입력값이 올바르지 않습니다.",
@@ -141,6 +142,7 @@ export async function POST(request: Request) {
       );
     }
 
+    console.error("Mutation failed.", error);
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "요청 처리에 실패했습니다.",

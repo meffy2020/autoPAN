@@ -1,5 +1,5 @@
-const CACHE_NAME = "autopan-v1";
-const APP_SHELL = ["/", "/kiosk", "/admin", "/board", "/manifest.webmanifest", "/icon.svg"];
+const CACHE_NAME = "autopan-v2";
+const APP_SHELL = ["/kiosk", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -32,7 +32,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     fetch(event.request).catch(async () => {
       const cached = await caches.match(event.request);
-      return cached ?? caches.match("/");
+      return cached ?? caches.match("/kiosk");
     }),
   );
 });

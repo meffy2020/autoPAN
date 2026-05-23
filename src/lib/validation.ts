@@ -19,6 +19,7 @@ export const kioskSheetMetadataSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "생년월일을 다시 확인해 주세요.")
     .optional(),
   gender: kioskGenderSchema.optional(),
+  spaceDetail: z.string().trim().max(40, "공간 이용 항목을 다시 확인해 주세요.").optional(),
 });
 
 export const memberInputSchema = z.object({
