@@ -307,47 +307,17 @@ function TimeButton({
   );
 }
 
-function SketchNote({
-  children,
-  className,
-  direction = "left",
-}: {
-  children: ReactNode;
-  className: string;
-  direction?: "left" | "right";
-}) {
-  const note = (
-    <span className="-rotate-2 whitespace-nowrap rounded-[22px] border-2 border-dashed border-[#202632] bg-white/95 px-4 py-2 text-[20px] font-bold leading-6 text-[#202632] shadow-[0_10px_24px_rgba(25,31,40,0.12)] [font-family:var(--font-handwrite)]">
-      {children}
-    </span>
-  );
-  const arrow = (
-    <span className="translate-y-1 rotate-[-8deg] whitespace-nowrap text-[22px] font-bold tracking-[-0.08em] text-[#202632] [font-family:var(--font-handwrite)]">
-      {direction === "right" ? "---->" : "<----"}
-    </span>
-  );
-
+function StepGuide({ children }: { children: ReactNode }) {
   return (
-    <div className={`pointer-events-none absolute z-10 hidden items-center gap-2 lg:flex ${className}`}>
-      {direction === "left" ? (
-        <>
-          {arrow}
-          {note}
-        </>
-      ) : (
-        <>
-          {note}
-          {arrow}
-        </>
-      )}
-    </div>
-  );
-}
-
-function MobileSketchNote({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-[22px] border-2 border-dashed border-[#202632] bg-white/95 px-4 py-3 text-center text-[19px] font-bold leading-6 text-[#202632] shadow-[0_10px_24px_rgba(25,31,40,0.14)] [font-family:var(--font-handwrite)] lg:hidden">
-      {children}
+    <div className="rounded-[20px] border border-[color:var(--line)] bg-white px-4 py-3 shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 shrink-0 rounded-full bg-[color:var(--accent-soft)] px-3 py-1 text-[12px] font-black text-[color:var(--accent)]">
+          안내
+        </span>
+        <p className="text-[16px] font-bold leading-7 text-[color:var(--foreground)]">
+          {children}
+        </p>
+      </div>
     </div>
   );
 }
@@ -734,7 +704,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     children: ReactNode,
     stepLabel: string,
     canGoBack = true,
-    mobileCoachText?: string,
+    guideText?: string,
   ) => (
     <div className="min-h-screen bg-[color:var(--background)] px-4 py-5 text-[color:var(--foreground)] sm:px-6">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
@@ -755,7 +725,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             {stepLabel}
           </div>
         </header>
-        {mobileCoachText ? <MobileSketchNote>{mobileCoachText}</MobileSketchNote> : null}
+        {guideText ? <StepGuide>{guideText}</StepGuide> : null}
         {children}
         {notice ? (
           <div className="rounded-full border border-[color:var(--line)] bg-[color:var(--surface)] px-4 py-3 text-center text-sm text-[color:var(--foreground)]">
@@ -831,13 +801,14 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         <h2 className="text-[30px] font-black tracking-tight text-[color:var(--foreground)] sm:text-4xl">
           이용 종류를 고르세요
         </h2>
+        <p className="mt-3 text-[17px] font-semibold leading-7 text-[color:var(--muted)]">
+          유료 놀이는 시간을 고른 뒤 접수하고, 공간 이용은 바로 이용자 선택으로
+          넘어갑니다.
+        </p>
         <div className="mt-7 grid items-stretch gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-          <fieldset className="relative flex h-full flex-col rounded-[18px] border border-[color:var(--line)] px-4 pb-5 pt-3 sm:px-5">
-            <SketchNote direction="right" className="-left-[150px] -top-[42px]">
-              유료 놀이 골라요
-            </SketchNote>
+          <fieldset className="flex h-full flex-col rounded-[18px] border border-[color:var(--line)] px-4 pb-5 pt-3 sm:px-5">
             <legend className="px-3 text-[13px] font-black tracking-[0.22em] text-[color:var(--accent)]">
-              --유료--
+              유료 놀이
             </legend>
             <div className="grid flex-1 gap-4 md:grid-cols-3">
               {(["pc", "nintendo", "playstation"] as const).map((type) => (
@@ -857,12 +828,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             </div>
           </fieldset>
 
-          <fieldset className="relative flex h-full flex-col rounded-[18px] border border-[color:var(--line)] px-4 pb-5 pt-3 sm:px-5">
-            <SketchNote direction="left" className="-right-[156px] -top-[42px]">
-              공간만 쓸 때
-            </SketchNote>
+          <fieldset className="flex h-full flex-col rounded-[18px] border border-[color:var(--line)] px-4 pb-5 pt-3 sm:px-5">
             <legend className="px-3 text-[13px] font-black tracking-[0.22em] text-[color:var(--muted)]">
-              --무료--
+              무료
             </legend>
             <ResourceCard
               label="공간 이용"
@@ -895,9 +863,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         </h2>
 
         <div className="relative mt-6 grid gap-3 sm:grid-cols-2">
-          <SketchNote direction="right" className="-left-[220px] -top-5">
-            와봤으면 왼쪽
-          </SketchNote>
           <ModeButton
             selected={tab === "existing"}
             icon={Search}
@@ -939,9 +904,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           이름 또는 연락처
         </label>
         <div className="relative mt-2 flex items-center gap-3 border-b-2 border-[color:var(--line)] px-1 py-1">
-          <SketchNote direction="left" className="-right-[180px] -top-[34px]">
-            이름 쓰고 검색
-          </SketchNote>
           <Search className="size-5 shrink-0 text-[color:var(--muted)]" />
           <input
             ref={searchInputRef}
@@ -1037,9 +999,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           입력해 주세요
         </h2>
         <div className="relative mt-6 grid gap-4">
-          <SketchNote direction="right" className="-left-[214px] -top-3">
-            이름부터 적어요
-          </SketchNote>
           <label className="block text-[16px] font-semibold text-[color:var(--foreground)]">
             학생 이름
           </label>
@@ -1218,9 +1177,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           </div>
         </div>
         <label className="relative mt-5 flex items-start gap-3 rounded-[18px] border border-[color:var(--line)] bg-white p-5">
-          <SketchNote direction="right" className="-left-[176px] -top-3">
-            체크하면 끝
-          </SketchNote>
           <input
             type="checkbox"
             checked={privacyAgreed}
@@ -1253,9 +1209,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           시간을 고르세요
         </h2>
         <div className="relative mt-6 grid gap-3">
-          <SketchNote direction="right" className="-left-[220px] -top-[44px]">
-            몇 분 할까요
-          </SketchNote>
           {pricingRules.map((rule) => (
             <TimeButton
               key={rule.id}
@@ -1274,11 +1227,21 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   }
 
   if (step === "entry") {
-    return kioskShell(entryScreen, "1 / 5", false, "하고 싶은 놀이를 눌러요.");
+    return kioskShell(
+      entryScreen,
+      "1 / 5",
+      false,
+      "먼저 이용할 항목을 선택해 주세요. 공간 이용은 시간 선택 없이 바로 접수로 이어집니다.",
+    );
   }
 
   if (step === "pricing") {
-    return kioskShell(pricingScreen, "2 / 5", true, "얼마나 이용할지 골라요.");
+    return kioskShell(
+      pricingScreen,
+      "2 / 5",
+      true,
+      "이용 시간을 선택해 주세요. 비용은 키오스크에 표시하지 않고 접수 후 선생님께 문의하도록 안내합니다.",
+    );
   }
 
   if (step === "identity") {
@@ -1286,7 +1249,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       identityScreen,
       resourceChoice === "space" ? "2 / 4" : "3 / 5",
       true,
-      "와본 적 있으면 재방문, 처음이면 첫 방문을 눌러요.",
+      "이미 방문한 적이 있으면 재방문, 처음이면 첫 방문을 선택해 주세요.",
     );
   }
 
@@ -1295,7 +1258,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       existingMemberScreen,
       resourceChoice === "space" ? "3 / 4" : "4 / 5",
       true,
-      "이름을 쓰고 파란 검색 버튼을 누른 다음, 내 이름을 골라요.",
+      "이름 또는 연락처를 입력하고 검색한 뒤, 내 이름을 선택해 주세요. 검색되지 않으면 새 등록으로 이어갈 수 있습니다.",
     );
   }
 
@@ -1304,7 +1267,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       newMemberScreen,
       resourceChoice === "space" ? "3 / 4" : "4 / 5",
       true,
-      "이름, 학교, 생일, 연락처를 차례대로 넣어요.",
+      "필수 정보를 차례대로 입력해 주세요. 빠진 항목은 빨간색으로 표시됩니다.",
     );
   }
 
@@ -1312,6 +1275,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     consentScreen,
     resourceChoice === "space" ? "4 / 4" : "5 / 5",
     true,
-    "체크하면 접수가 끝나요.",
+    "동의 내용을 확인하고 체크하면 접수가 완료됩니다.",
   );
 }

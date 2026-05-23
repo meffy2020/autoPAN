@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -32,7 +31,6 @@
     "Noto Sans KR",
     sans-serif;
   --font-mono-stack: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-  --font-handwrite: "Gaegu", "Apple SD Gothic Neo", cursive;
 }
 
 @theme inline {
