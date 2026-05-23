@@ -307,21 +307,6 @@ function TimeButton({
   );
 }
 
-function StepGuide({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-[20px] border border-[color:var(--line)] bg-white px-4 py-3 shadow-sm">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 shrink-0 rounded-full bg-[color:var(--accent-soft)] px-3 py-1 text-[12px] font-black text-[color:var(--accent)]">
-          안내
-        </span>
-        <p className="text-[16px] font-bold leading-7 text-[color:var(--foreground)]">
-          {children}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const { snapshot, refresh } = useLiveSnapshot(initial, 5000);
   const [tab, setTab] = useState<"existing" | "new" | null>(null);
@@ -704,7 +689,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     children: ReactNode,
     stepLabel: string,
     canGoBack = true,
-    guideText?: string,
   ) => (
     <div className="min-h-screen bg-[color:var(--background)] px-4 py-5 text-[color:var(--foreground)] sm:px-6">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
@@ -725,7 +709,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             {stepLabel}
           </div>
         </header>
-        {guideText ? <StepGuide>{guideText}</StepGuide> : null}
         {children}
         {notice ? (
           <div className="rounded-full border border-[color:var(--line)] bg-[color:var(--surface)] px-4 py-3 text-center text-sm text-[color:var(--foreground)]">
@@ -1227,29 +1210,17 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   }
 
   if (step === "entry") {
-    return kioskShell(
-      entryScreen,
-      "1 / 5",
-      false,
-      "먼저 이용할 항목을 선택해 주세요. 공간 이용은 시간 선택 없이 바로 접수로 이어집니다.",
-    );
+    return kioskShell(entryScreen, "1 / 5", false);
   }
 
   if (step === "pricing") {
-    return kioskShell(
-      pricingScreen,
-      "2 / 5",
-      true,
-      "이용 시간을 선택해 주세요. 비용은 키오스크에 표시하지 않고 접수 후 선생님께 문의하도록 안내합니다.",
-    );
+    return kioskShell(pricingScreen, "2 / 5");
   }
 
   if (step === "identity") {
     return kioskShell(
       identityScreen,
       resourceChoice === "space" ? "2 / 4" : "3 / 5",
-      true,
-      "이미 방문한 적이 있으면 재방문, 처음이면 첫 방문을 선택해 주세요.",
     );
   }
 
@@ -1257,8 +1228,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     return kioskShell(
       existingMemberScreen,
       resourceChoice === "space" ? "3 / 4" : "4 / 5",
-      true,
-      "이름 또는 연락처를 입력하고 검색한 뒤, 내 이름을 선택해 주세요. 검색되지 않으면 새 등록으로 이어갈 수 있습니다.",
     );
   }
 
@@ -1266,15 +1235,11 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     return kioskShell(
       newMemberScreen,
       resourceChoice === "space" ? "3 / 4" : "4 / 5",
-      true,
-      "필수 정보를 차례대로 입력해 주세요. 빠진 항목은 빨간색으로 표시됩니다.",
     );
   }
 
   return kioskShell(
     consentScreen,
     resourceChoice === "space" ? "4 / 4" : "5 / 5",
-    true,
-    "동의 내용을 확인하고 체크하면 접수가 완료됩니다.",
   );
 }
