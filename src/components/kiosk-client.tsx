@@ -72,7 +72,7 @@ const BIRTH_YEAR_OPTIONS = Array.from(
 const BIRTH_MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) =>
   String(index + 1).padStart(2, "0"),
 );
-const POPULAR_SCHOOLS = ["중평초", "중원초", "당현초", "한신초"] as const;
+const POPULAR_SCHOOLS = ["중평초", "중원초", "상천초", "당현초"] as const;
 
 function normalizePhoneInput(value: string) {
   return value.replace(/\D/g, "");
