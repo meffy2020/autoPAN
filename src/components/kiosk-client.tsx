@@ -730,14 +730,10 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         <h2 className="text-[30px] font-black tracking-tight text-[color:var(--foreground)] sm:text-4xl">
           이용 종류를 고르세요
         </h2>
-        <p className="mt-3 text-[17px] font-semibold leading-7 text-[color:var(--muted)]">
-          유료 놀이는 시간을 고른 뒤 접수하고, 공간 이용은 바로 이용자 선택으로
-          넘어갑니다.
-        </p>
         <div className="mt-7 grid items-stretch gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
           <fieldset className="flex h-full flex-col rounded-[18px] border border-[color:var(--line)] px-4 pb-5 pt-3 sm:px-5">
             <legend className="px-3 text-[13px] font-black tracking-[0.22em] text-[color:var(--accent)]">
-              유료 놀이
+              유료
             </legend>
             <div className="grid flex-1 gap-4 md:grid-cols-3">
               {(["pc", "nintendo", "playstation"] as const).map((type) => (
@@ -867,11 +863,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           </button>
         </div>
         <div ref={searchResultsRef} className="mt-6 max-h-[42vh] space-y-3 overflow-y-auto pr-1">
-          {!isMemberSearchLoading && !hasSearchedMembers ? (
-            <div className="rounded-[18px] border border-dashed border-[color:var(--line)] bg-[color:var(--surface)] p-6 text-center text-[color:var(--muted)]">
-              이름을 다 쓰고 파란 검색 버튼을 눌러요.
-            </div>
-          ) : null}
           {visibleMembers.slice(0, 8).map((member) => (
             <MemberButton
               key={member.id}
