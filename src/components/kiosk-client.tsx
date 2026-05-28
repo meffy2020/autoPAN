@@ -911,7 +911,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               setNotice("");
             }}
             className={getInputClassName(missingNewMemberFields.schoolName)}
-            placeholder="다른 학교는 직접 입력"
+            placeholder="다른 학교는 직접 입력 예: 놀다초"
           />
           {showNewMemberErrors && missingNewMemberFields.schoolName
             ? errorText("학교명을 선택하거나 입력해 주세요.")
