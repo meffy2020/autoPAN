@@ -23,7 +23,6 @@ import { sortPricingRules, getResourceSummary } from "@/lib/selectors";
 import type { SnapshotEnvelope } from "@/lib/snapshot";
 
 type FlowStep =
-  | "idle"
   | "entry"
   | "pricing"
   | "identity"
@@ -310,7 +309,7 @@ function TimeButton({
 export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const { snapshot, refresh } = useLiveSnapshot(initial, 5000);
   const [tab, setTab] = useState<"existing" | "new" | null>(null);
-  const [step, setStep] = useState<FlowStep>("idle");
+  const [step, setStep] = useState<FlowStep>("entry");
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [sheetMembers, setSheetMembers] = useState<SheetMember[]>([]);
   const [isMemberSearchLoading, setIsMemberSearchLoading] = useState(false);
@@ -381,22 +380,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   );
 
   const resetFlow = useCallback(() => {
-    setStep("idle");
-    setTab(null);
-    setSelectedMemberId("");
-    setSheetMembers([]);
-    setQuery("");
-    setHasSearchedMembers(false);
-    setResourceChoice(null);
-    setPricingRuleId("");
-    setFormState(DEFAULT_FORM);
-    setAttemptedNewMemberSubmit(false);
-    setPrivacyAgreed(false);
-    setCompletion(null);
-    setNotice("");
-  }, []);
-
-  const startReception = () => {
     setStep("entry");
     setTab(null);
     setSelectedMemberId("");
@@ -410,7 +393,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     setPrivacyAgreed(false);
     setCompletion(null);
     setNotice("");
-  };
+  }, []);
 
   const searchSheetMembers = async () => {
     const trimmedQuery = query.trim();
@@ -739,43 +722,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         ) : null}
       </div>
     </div>
-  );
-
-  const idleScreen = (
-    <section
-      className="grid min-h-[84vh] cursor-pointer items-center"
-      onClick={startReception}
-      role="presentation"
-    >
-      <div className="relative overflow-hidden rounded-[32px] border border-[color:var(--line)] bg-gradient-to-br from-[#fff7db] via-white to-[#e5f0ff] p-8 text-center shadow-[var(--shadow-soft)] sm:p-12">
-        <div className="absolute -right-10 -top-10 size-40 rounded-full bg-[color:var(--accent-soft)] blur-2xl" />
-        <div className="absolute -bottom-12 -left-8 size-44 rounded-full bg-[#dff5ea] blur-2xl" />
-        <div className="relative">
-          <div className="mx-auto inline-flex rounded-full bg-white/80 px-4 py-2 text-sm font-black tracking-[0.2em] text-[color:var(--accent)] shadow-sm">
-            NOWON YOUTH CENTER
-          </div>
-          <h1 className="mt-7 text-[46px] font-black tracking-tight text-[color:var(--foreground)] sm:text-[64px]">
-            나놀다판
-          </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-[20px] font-bold leading-8 text-[color:var(--foreground)] sm:text-[24px]">
-            놀고, 쉬고, 친구와 만나는 청소년 놀이 공간
-          </p>
-          <p className="mt-3 text-[16px] font-semibold text-[color:var(--muted)]">
-            접수하려면 화면을 터치하거나 아래 버튼을 눌러주세요.
-          </p>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              startReception();
-            }}
-            className="mt-9 rounded-full bg-[color:var(--accent)] px-10 py-4 text-[18px] font-black text-white shadow-[0_14px_36px_rgba(69,98,255,0.24)]"
-          >
-            접수 시작하기
-          </button>
-        </div>
-      </div>
-    </section>
   );
 
   const entryScreen = (
@@ -1204,10 +1150,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       </div>
     </section>
   ) : null;
-
-  if (step === "idle") {
-    return kioskShell(idleScreen, "대기", false);
-  }
 
   if (step === "entry") {
     return kioskShell(entryScreen, "1 / 5", false);
