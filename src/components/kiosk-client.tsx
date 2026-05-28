@@ -7,7 +7,6 @@ import {
   Gamepad2,
   Monitor,
   Search,
-  UserRoundPlus,
   Users,
 } from "lucide-react";
 
@@ -25,7 +24,6 @@ import type { SnapshotEnvelope } from "@/lib/snapshot";
 type FlowStep =
   | "entry"
   | "pricing"
-  | "identity"
   | "existing-member"
   | "new-member"
   | "consent";
@@ -74,6 +72,11 @@ const BIRTH_YEAR_OPTIONS = Array.from(
 const BIRTH_MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) =>
   String(index + 1).padStart(2, "0"),
 );
+const POPULAR_SCHOOLS = ["중평초", "중원초", "당현초", "한신초"] as const;
+
+function normalizePhoneInput(value: string) {
+  return value.replace(/\D/g, "");
+}
 function getBirthDateValue(formState: MemberFormState) {
   if (!formState.birthYear || !formState.birthMonth || !formState.birthDay) {
     return "";
@@ -143,48 +146,6 @@ const RESOURCE_CARD_THEME: Record<
     pill: "bg-[#c14ab4] text-white",
   },
 };
-
-function ModeButton({
-  selected,
-  icon: Icon,
-  title,
-  description,
-  onClick,
-}: {
-  selected: boolean;
-  icon: typeof Search;
-  title: string;
-  description: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-[20px] border px-5 py-5 text-left transition ${
-        selected
-          ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)]"
-          : "border-[color:var(--line)] bg-[color:var(--surface-strong)] hover:bg-[color:var(--surface)]"
-      }`}
-    >
-      <div className="flex items-center gap-4">
-        <div
-          className={`flex size-12 items-center justify-center rounded-2xl ${
-            selected
-              ? "bg-[color:var(--accent)] text-white"
-              : "bg-[color:var(--surface-soft)] text-[color:var(--foreground)]"
-          }`}
-        >
-          <Icon className="size-5" />
-        </div>
-        <div>
-          <div className="text-lg font-bold text-[color:var(--foreground)]">{title}</div>
-          <div className="mt-1 text-sm text-[color:var(--muted)]">{description}</div>
-        </div>
-      </div>
-    </button>
-  );
-}
 
 function MemberButton({
   name,
@@ -322,6 +283,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const [privacyAgreed, setPrivacyAgreed] = useState(false);
   const [completion, setCompletion] = useState<CompletionState | null>(null);
   const [notice, setNotice] = useState("");
+  const [phoneHint, setPhoneHint] = useState("");
   const [isPending, startTransition] = useTransition();
   const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -393,6 +355,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     setPrivacyAgreed(false);
     setCompletion(null);
     setNotice("");
+    setPhoneHint("");
   }, []);
 
   const searchSheetMembers = async () => {
@@ -455,18 +418,18 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const goBack = () => {
     setNotice("");
 
-    if (step === "existing-member" || step === "new-member") {
-      setStep("identity");
+    if (step === "existing-member") {
+      setStep(selectedResourceType ? "pricing" : "entry");
+      return;
+    }
+
+    if (step === "new-member") {
+      setStep("existing-member");
       return;
     }
 
     if (step === "consent") {
       setStep(tab === "existing" ? "existing-member" : "new-member");
-      return;
-    }
-
-    if (step === "identity") {
-      setStep(selectedResourceType ? "pricing" : "entry");
       return;
     }
 
@@ -601,14 +564,16 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     if (nextChoice === "space") {
       setResourceChoice("space");
       setPricingRuleId("");
-      setTab(null);
+      setTab("existing");
       setSelectedMemberId("");
+      setSheetMembers([]);
       setQuery("");
       setHasSearchedMembers(false);
       setAttemptedNewMemberSubmit(false);
       setPrivacyAgreed(false);
       setNotice("");
-      setStep("identity");
+      setPhoneHint("");
+      setStep("existing-member");
       return;
     }
 
@@ -621,14 +586,22 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     setAttemptedNewMemberSubmit(false);
     setPrivacyAgreed(false);
     setNotice("");
+    setPhoneHint("");
     setStep("pricing");
   };
 
   const choosePricingRule = (nextPricingRuleId: string) => {
     setPricingRuleId(nextPricingRuleId);
+    setTab("existing");
+    setSelectedMemberId("");
+    setSheetMembers([]);
+    setQuery("");
+    setHasSearchedMembers(false);
+    setAttemptedNewMemberSubmit(false);
     setPrivacyAgreed(false);
     setNotice("");
-    setStep("identity");
+    setPhoneHint("");
+    setStep("existing-member");
   };
 
   const goToConsentStep = () => {
@@ -665,6 +638,17 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
       return next;
     });
+    setNotice("");
+  };
+
+  const updateGuardianPhone = (value: string) => {
+    const normalizedValue = normalizePhoneInput(value);
+
+    setFormState((current) => ({
+      ...current,
+      guardianPhone: normalizedValue,
+    }));
+    setPhoneHint(value !== normalizedValue ? "숫자만 입력돼요" : "");
     setNotice("");
   };
 
@@ -778,45 +762,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     </section>
   );
 
-  const identityScreen = (
-    <section className="grid min-h-[80vh] items-center">
-      <div className="surface-card mx-auto w-full max-w-3xl rounded-[24px] p-6 sm:p-8">
-        <h2 className="text-[26px] font-bold tracking-tight text-[color:var(--foreground)] sm:text-[30px]">
-          이용자를
-          <br />
-          선택해 주세요
-        </h2>
-
-        <div className="relative mt-6 grid gap-3 sm:grid-cols-2">
-          <ModeButton
-            selected={tab === "existing"}
-            icon={Search}
-            title="재방문"
-            description="이름으로 찾기"
-            onClick={() => {
-              setTab("existing");
-              setAttemptedNewMemberSubmit(false);
-              setNotice("");
-              setStep("existing-member");
-            }}
-          />
-          <ModeButton
-            selected={tab === "new"}
-            icon={UserRoundPlus}
-            title="첫 방문"
-            description="정보 입력"
-            onClick={() => {
-              setTab("new");
-              setAttemptedNewMemberSubmit(false);
-              setNotice("");
-              setStep("new-member");
-            }}
-          />
-        </div>
-      </div>
-    </section>
-  );
-
   const existingMemberScreen = (
     <section className="grid min-h-[80vh] items-center">
       <div className="surface-card mx-auto w-full max-w-3xl rounded-[24px] p-6 sm:p-8">
@@ -889,6 +834,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
                   setHasSearchedMembers(false);
                   setAttemptedNewMemberSubmit(false);
                   setNotice("");
+                  setPhoneHint("");
                   setStep("new-member");
                 }}
                 className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-3 text-[15px] font-bold text-white"
@@ -937,16 +883,38 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           <label className="block text-[16px] font-semibold text-[color:var(--foreground)]">
             학교명
           </label>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {POPULAR_SCHOOLS.map((school) => (
+              <button
+                key={school}
+                type="button"
+                onClick={() => {
+                  setFormState((current) => ({ ...current, schoolName: school }));
+                  setNotice("");
+                }}
+                className={`rounded-[18px] border px-4 py-4 text-[16px] font-bold transition ${
+                  formState.schoolName === school
+                    ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
+                    : showNewMemberErrors && missingNewMemberFields.schoolName
+                      ? "border-red-400 bg-red-50 text-red-700"
+                    : "border-[color:var(--line)] bg-[color:var(--surface)] text-[color:var(--foreground)]"
+                }`}
+              >
+                {school}
+              </button>
+            ))}
+          </div>
           <input
             value={formState.schoolName}
-            onChange={(event) =>
-              setFormState((current) => ({ ...current, schoolName: event.target.value }))
-            }
+            onChange={(event) => {
+              setFormState((current) => ({ ...current, schoolName: event.target.value }));
+              setNotice("");
+            }}
             className={getInputClassName(missingNewMemberFields.schoolName)}
-            placeholder="예: 판초등학교"
+            placeholder="다른 학교는 직접 입력"
           />
           {showNewMemberErrors && missingNewMemberFields.schoolName
-            ? errorText("학교명을 입력해 주세요.")
+            ? errorText("학교명을 선택하거나 입력해 주세요.")
             : null}
 
           <label className="block text-[16px] font-semibold text-[color:var(--foreground)]">
@@ -1042,15 +1010,12 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           </label>
           <input
             value={formState.guardianPhone}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                guardianPhone: event.target.value,
-              }))
-            }
+            onChange={(event) => updateGuardianPhone(event.target.value)}
+            inputMode="numeric"
             className={getInputClassName(missingNewMemberFields.guardianPhone)}
             placeholder="예: 01012345678"
           />
+          {phoneHint ? <p className="mt-1 text-sm font-semibold text-[color:var(--muted)]">{phoneHint}</p> : null}
           {showNewMemberErrors && missingNewMemberFields.guardianPhone
             ? errorText("보호자 연락처를 입력해 주세요.")
             : null}
@@ -1143,36 +1108,20 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   ) : null;
 
   if (step === "entry") {
-    return kioskShell(entryScreen, "1 / 5", false);
+    return kioskShell(entryScreen, "이용 선택", false);
   }
 
   if (step === "pricing") {
-    return kioskShell(pricingScreen, "2 / 5");
-  }
-
-  if (step === "identity") {
-    return kioskShell(
-      identityScreen,
-      resourceChoice === "space" ? "2 / 4" : "3 / 5",
-    );
+    return kioskShell(pricingScreen, "시간 선택");
   }
 
   if (step === "existing-member") {
-    return kioskShell(
-      existingMemberScreen,
-      resourceChoice === "space" ? "3 / 4" : "4 / 5",
-    );
+    return kioskShell(existingMemberScreen, "사용자 확인");
   }
 
   if (step === "new-member") {
-    return kioskShell(
-      newMemberScreen,
-      resourceChoice === "space" ? "3 / 4" : "4 / 5",
-    );
+    return kioskShell(newMemberScreen, "새 등록");
   }
 
-  return kioskShell(
-    consentScreen,
-    resourceChoice === "space" ? "4 / 4" : "5 / 5",
-  );
+  return kioskShell(consentScreen, "동의");
 }
