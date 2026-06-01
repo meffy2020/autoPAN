@@ -2,6 +2,12 @@ import "server-only";
 
 import { addMinutes } from "date-fns";
 
+import {
+  formatDailyGameLimitMessage,
+  getDailyGameLimitViolation,
+  isGameResourceType,
+} from "@/lib/kiosk-policy";
+
 import type {
   Payment,
   PaymentMethod,
@@ -61,17 +67,35 @@ export function enqueueVisit(input: {
     }
 
     let memberId = input.existingMemberId;
+    const matchedMember = !memberId && input.member
+      ? state.members.find(
+          (member) =>
+            normalize(member.name) === normalize(input.member!.name) &&
+            normalize(member.guardianPhone) === normalize(input.member!.guardianPhone),
+        )
+      : undefined;
+    const policyMemberId = memberId ?? matchedMember?.id;
+
+    if (isGameResourceType(input.resourceType)) {
+      const limitViolation = getDailyGameLimitViolation({
+        state,
+        identity: {
+          memberId: policyMemberId,
+          member: input.member,
+        },
+        selectedMinutes: pricingRule.minutes,
+        now,
+      });
+
+      if (limitViolation) {
+        throw new Error(formatDailyGameLimitMessage(limitViolation.remainingMinutes));
+      }
+    }
 
     if (!memberId) {
       if (!input.member) {
         throw new Error("회원 정보를 입력해 주세요.");
       }
-
-      const matchedMember = state.members.find(
-        (member) =>
-          normalize(member.name) === normalize(input.member!.name) &&
-          normalize(member.guardianPhone) === normalize(input.member!.guardianPhone),
-      );
 
       if (matchedMember) {
         memberId = matchedMember.id;

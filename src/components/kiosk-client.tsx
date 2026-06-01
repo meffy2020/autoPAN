@@ -11,6 +11,11 @@ import {
 } from "lucide-react";
 
 import { StatusPill } from "@/components/ui-primitives";
+import {
+  formatDailyGameLimitMessage,
+  getDailyGameLimitViolation,
+  isElementaryGradeOneOrOlderBirthYear,
+} from "@/lib/kiosk-policy";
 import { useLiveSnapshot } from "@/hooks/use-live-snapshot";
 import { getJson, postMutation } from "@/lib/client-api";
 import {
@@ -30,6 +35,11 @@ type FlowStep =
 type KioskResourceChoice = ResourceType;
 type CompletionState = {
   kind: "paid" | "space";
+  message: string;
+};
+
+type BlockingDialogState = {
+  title: string;
   message: string;
 };
 
@@ -172,7 +182,7 @@ function MemberButton({
     >
       <div className="text-[16px] font-semibold text-[color:var(--foreground)]">{name}</div>
       <div className="mt-1 text-[13px] text-[color:var(--muted)]">
-        {formatMemberAgeLabel(gradeOrAge)} · {maskPhone(guardianPhone)}
+        {formatMemberAgeLabel(gradeOrAge)} · 보호자 연락처 {maskPhone(guardianPhone)}
       </div>
       <div className="mt-3">
         <StatusPill tone={isSelected ? "good" : "neutral"}>
@@ -282,6 +292,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const [attemptedNewMemberSubmit, setAttemptedNewMemberSubmit] = useState(false);
   const [privacyAgreed, setPrivacyAgreed] = useState(false);
   const [completion, setCompletion] = useState<CompletionState | null>(null);
+  const [blockingDialog, setBlockingDialog] = useState<BlockingDialogState | null>(null);
   const [notice, setNotice] = useState("");
   const [phoneHint, setPhoneHint] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -354,6 +365,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     setAttemptedNewMemberSubmit(false);
     setPrivacyAgreed(false);
     setCompletion(null);
+    setBlockingDialog(null);
     setNotice("");
     setPhoneHint("");
   }, []);
@@ -478,17 +490,40 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     };
   }, [resetFlow]);
 
-  const speakCompletion = (message: string) => {
+  useEffect(() => {
+    const unlockSpeech = () => {
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.resume();
+      }
+    };
+
+    window.addEventListener("pointerdown", unlockSpeech, { once: true });
+    window.addEventListener("touchstart", unlockSpeech, { once: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", unlockSpeech);
+      window.removeEventListener("touchstart", unlockSpeech);
+    };
+  }, []);
+
+  const speakKioskMessage = useCallback((message: string) => {
     if (!("speechSynthesis" in window)) {
       return;
     }
 
     window.speechSynthesis.cancel();
+    window.speechSynthesis.resume();
     const utterance = new SpeechSynthesisUtterance(message);
     utterance.lang = "ko-KR";
     utterance.rate = 0.95;
     window.speechSynthesis.speak(utterance);
-  };
+  }, []);
+
+  const showBlockingDialog = useCallback((title: string, message: string) => {
+    setNotice(message);
+    setBlockingDialog({ title, message });
+    speakKioskMessage(message);
+  }, [speakKioskMessage]);
 
   const finishCompletion = useCallback(() => {
     if (completionTimerRef.current) {
@@ -504,7 +539,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     startTransition(async () => {
       try {
         if (!canSubmit || !resourceChoice) {
-          setNotice("접수 정보를 다시 확인해 주세요.");
+          showBlockingDialog("접수 정보를 확인해 주세요", "접수 정보를 다시 확인해 주세요.");
           return;
         }
 
@@ -525,8 +560,30 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               };
 
         if (!identityPayload) {
-          setNotice("이용자를 선택해 주세요.");
+          showBlockingDialog("이용자 선택이 필요해요", "이용자를 선택해 주세요.");
           return;
+        }
+
+        if (selectedResourceType) {
+          const selectedRule = pricingRules.find((rule) => rule.id === effectivePricingRuleId);
+          const limitViolation = selectedRule
+            ? getDailyGameLimitViolation({
+                state: snapshot,
+                identity: {
+                  memberId: selectedMember?.id,
+                  member: identityPayload.member,
+                },
+                selectedMinutes: selectedRule.minutes,
+              })
+            : null;
+
+          if (limitViolation) {
+            showBlockingDialog(
+              "오늘 이용 시간이 부족해요",
+              formatDailyGameLimitMessage(limitViolation.remainingMinutes),
+            );
+            return;
+          }
         }
 
         if (resourceChoice === "space") {
@@ -551,11 +608,14 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           kind: resourceChoice === "space" ? "space" : "paid",
           message,
         });
-        speakCompletion(message);
+        speakKioskMessage(message);
         refresh();
         completionTimerRef.current = setTimeout(finishCompletion, 8000);
       } catch (error) {
-        setNotice(error instanceof Error ? error.message : "접수 처리에 실패했습니다.");
+        showBlockingDialog(
+          "접수할 수 없어요",
+          error instanceof Error ? error.message : "접수 처리에 실패했습니다.",
+        );
       }
     });
   };
@@ -612,6 +672,14 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         setNotice("빨간 표시된 정보를 모두 입력해 주세요.");
         return;
       }
+
+      if (!isElementaryGradeOneOrOlderBirthYear(formState.birthYear)) {
+        showBlockingDialog(
+          "아직 이용할 수 없어요",
+          "나놀다판은 초등학교 1학년부터 이용할 수 있어요. 보호자와 함께 선생님께 문의해 주세요.",
+        );
+        return;
+      }
     }
 
     if (!identityReady) {
@@ -620,8 +688,22 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     }
 
     setPrivacyAgreed(false);
+    setBlockingDialog(null);
     setNotice("");
     setStep("consent");
+  };
+
+  const startNewMemberRegistration = () => {
+    setTab("new");
+    setSelectedMemberId("");
+    setSheetMembers([]);
+    setQuery("");
+    setHasSearchedMembers(false);
+    setAttemptedNewMemberSubmit(false);
+    setNotice("");
+    setPhoneHint("");
+    setBlockingDialog(null);
+    setStep("new-member");
   };
 
   const updateBirthDatePart = (
@@ -680,6 +762,25 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         {notice ? (
           <div className="rounded-full border border-[color:var(--line)] bg-[color:var(--surface)] px-4 py-3 text-center text-sm text-[color:var(--foreground)]">
             {notice}
+          </div>
+        ) : null}
+        {blockingDialog ? (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-[#111827]/35 px-5">
+            <div className="w-full max-w-md rounded-[28px] border border-[color:var(--line)] bg-white p-7 text-center shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+              <h2 className="text-[26px] font-black tracking-tight text-[color:var(--foreground)]">
+                {blockingDialog.title}
+              </h2>
+              <p className="mt-4 text-[18px] font-bold leading-8 text-[color:var(--foreground)]">
+                {blockingDialog.message}
+              </p>
+              <button
+                type="button"
+                onClick={() => setBlockingDialog(null)}
+                className="mt-7 inline-flex w-full items-center justify-center rounded-full border border-[color:var(--line)] bg-[color:var(--surface)] px-5 py-4 text-[16px] font-bold text-[color:var(--foreground)]"
+              >
+                확인
+              </button>
+            </div>
           </div>
         ) : null}
         {completion ? (
@@ -821,22 +922,16 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               }}
             />
           ))}
-          {!isMemberSearchLoading && hasSearchedMembers && visibleMembers.length === 0 ? (
+          {!isMemberSearchLoading && hasSearchedMembers ? (
             <div className="rounded-[18px] border border-dashed border-[color:var(--line)] bg-[color:var(--surface)] p-6 text-center text-[color:var(--muted)]">
-              <p className="text-[16px] font-semibold">이름이 안 보여요.</p>
+              <p className="text-[16px] font-semibold">
+                {visibleMembers.length === 0
+                  ? "이름이 안 보여요."
+                  : "찾는 학생이 아니면 새로 등록할 수 있어요."}
+              </p>
               <button
                 type="button"
-                onClick={() => {
-                  setTab("new");
-                  setSelectedMemberId("");
-                  setSheetMembers([]);
-                  setQuery("");
-                  setHasSearchedMembers(false);
-                  setAttemptedNewMemberSubmit(false);
-                  setNotice("");
-                  setPhoneHint("");
-                  setStep("new-member");
-                }}
+                onClick={startNewMemberRegistration}
                 className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-3 text-[15px] font-bold text-white"
               >
                 새 등록으로 접수하기
