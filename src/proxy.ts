@@ -13,6 +13,7 @@ function isKioskAllowedPath(pathname: string) {
   return (
     PUBLIC_EXACT_PATHS.has(pathname) ||
     pathname.startsWith("/api/") ||
+    pathname.startsWith("/audio/") ||
     pathname.startsWith("/_next/")
   );
 }

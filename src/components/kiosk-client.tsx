@@ -38,6 +38,116 @@ type BlockingDialogState = {
   message: string;
 };
 
+type AudioCue =
+  | "paidComplete"
+  | "spaceComplete"
+  | "gameLimitFull"
+  | "gameLimitNotEnough"
+  | "underageBlocked"
+  | "selectUserRequired"
+  | "invalidIntakeInfo"
+  | "intakeFailed"
+  | "searchNameOrPhone"
+  | "noMyInfoRegister"
+  | "sameNameCheck"
+  | "newMemberIntro"
+  | "privacyConsentRequired"
+  | "requiredFieldsMissing"
+  | "deskPaymentShort"
+  | "queueWaitNotice"
+  | "spaceCompleteSafe"
+  | "systemError";
+
+const AUDIO_BASE_PATH = "/audio/";
+const AUDIO_CUE_PATHS: Record<AudioCue, string[]> = {
+  paidComplete: [
+    "audio_0_접수_완료되었습니다_.mp3",
+    "audio_1_결제하고_이용해야_해요_.mp3",
+    "audio_2_데스크로_가서_선생님께_안내받아_주세요_.mp3",
+  ],
+  spaceComplete: [
+    "audio_3_접수_완료되었습니다_.mp3",
+    "audio_4_자__이제_재밌게_놀자__.mp3",
+  ],
+  gameLimitFull: [
+    "audio_5_오늘은_컴퓨터__닌텐도__플스를_합쳐_2시간을_모두_이용했어요_.mp3",
+    "audio_6_내일_다시_접수해_주세요_.mp3",
+  ],
+  gameLimitNotEnough: [
+    "audio_7_컴퓨터__닌텐도__플스는_하루_2시간까지만_이용할_수_있어요_.mp3",
+    "audio_8_오늘_남은_시간이_부족해서_접수할_수_없어요_.mp3",
+  ],
+  underageBlocked: [
+    "audio_9_나놀다판은_초등학교_1학년부터_이용할_수_있어요_.mp3",
+    "audio_10_보호자와_함께_선생님께_문의해_주세요_.mp3",
+  ],
+  selectUserRequired: ["audio_11_이용자를_선택해_주세요_.mp3"],
+  invalidIntakeInfo: ["audio_12_접수_정보를_다시_확인해_주세요_.mp3"],
+  intakeFailed: [
+    "audio_13_접수_처리에_실패했습니다_.mp3",
+    "audio_14_선생님께_문의해_주세요_.mp3",
+  ],
+  searchNameOrPhone: [
+    "audio_15_이름이나_보호자_연락처를_입력하고_검색해_주세요_.mp3",
+  ],
+  noMyInfoRegister: ["audio_16_내_정보가_없으면_새로_등록해_주세요_.mp3"],
+  sameNameCheck: [
+    "audio_17_이름이_같아도_나이와_보호자_연락처가_다르면_내_정보가_아닐_수_있어요_.mp3",
+  ],
+  newMemberIntro: ["audio_18_처음_온_친구는_새로_등록해_주세요_.mp3"],
+  privacyConsentRequired: [
+    "audio_19_접수를_위해_개인정보_이용_동의가_필요해요_.mp3",
+  ],
+  requiredFieldsMissing: [
+    "audio_20_빨간_표시된_정보를_모두_입력해_주세요_.mp3",
+  ],
+  deskPaymentShort: ["audio_21_데스크에서_결제한_뒤_이용해_주세요_.mp3"],
+  queueWaitNotice: [
+    "audio_22_접수되었습니다_.mp3",
+    "audio_23_순서가_되면_선생님이_불러줄_거예요_.mp3",
+  ],
+  spaceCompleteSafe: [
+    "audio_24_공간_이용_접수가_완료되었습니다_.mp3",
+    "audio_25_안전하게_재밌게_놀아요_.mp3",
+  ],
+  systemError: [
+    "audio_26_잠시_문제가_생겼어요_.mp3",
+    "audio_27_선생님께_문의해_주세요_.mp3",
+  ],
+};
+
+function getBlockingAudioCue(message: string): AudioCue {
+  if (message.includes("2시간을 모두")) {
+    return "gameLimitFull";
+  }
+
+  if (message.includes("하루 2시간") || message.includes("남은 시간")) {
+    return "gameLimitNotEnough";
+  }
+
+  if (message.includes("초등학교 1학년")) {
+    return "underageBlocked";
+  }
+
+  if (message.includes("이용자를 선택")) {
+    return "selectUserRequired";
+  }
+
+  if (message.includes("접수 정보")) {
+    return "invalidIntakeInfo";
+  }
+
+  if (message.includes("빨간 표시")) {
+    return "requiredFieldsMissing";
+  }
+
+  if (message.includes("잠시 문제가")) {
+    return "systemError";
+  }
+
+  return "intakeFailed";
+}
+
 type MemberFormState = {
   name: string;
   schoolName: string;
@@ -310,6 +420,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const speechVoicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const speechUnlockedRef = useRef(false);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUnlockedRef = useRef(false);
+  const audioSequenceTokenRef = useRef(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultsRef = useRef<HTMLDivElement>(null);
 
@@ -400,6 +513,10 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
     if (!trimmedQuery) {
       setNotice("이름 또는 연락처를 입력한 뒤 검색해 주세요.");
+      speakKioskMessage(
+        "이름이나 보호자 연락처를 입력하고 검색해 주세요.",
+        "searchNameOrPhone",
+      );
       setSheetMembers([]);
       setSelectedMemberId("");
       setHasSearchedMembers(false);
@@ -418,6 +535,17 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
       setSheetMembers(data.members);
       setHasSearchedMembers(true);
+      if (data.members.length === 0) {
+        speakKioskMessage(
+          "내 정보가 없으면 새로 등록해 주세요.",
+          "noMyInfoRegister",
+        );
+      } else {
+        speakKioskMessage(
+          "이름이 같아도 나이와 보호자 연락처가 다르면 내 정보가 아닐 수 있어요.",
+          "sameNameCheck",
+        );
+      }
     } catch (error) {
       setSheetMembers([]);
       setHasSearchedMembers(true);
@@ -545,6 +673,25 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       primer.rate = 1;
       currentUtteranceRef.current = primer;
       synth.speak(primer);
+
+      if (!audioUnlockedRef.current) {
+        audioUnlockedRef.current = true;
+        const primerAudio = new Audio(
+          `${AUDIO_BASE_PATH}${AUDIO_CUE_PATHS.invalidIntakeInfo[0]}`,
+        );
+        primerAudio.muted = true;
+        primerAudio.volume = 0;
+        primerAudio.preload = "auto";
+        void primerAudio
+          .play()
+          .then(() => {
+            primerAudio.pause();
+            primerAudio.currentTime = 0;
+          })
+          .catch(() => {
+            audioUnlockedRef.current = false;
+          });
+      }
     };
 
     loadVoices();
@@ -561,7 +708,43 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     };
   }, []);
 
-  const speakKioskMessage = useCallback((message: string) => {
+  const playAudioSequence = useCallback(async (cue: AudioCue) => {
+    const paths = AUDIO_CUE_PATHS[cue];
+    const token = audioSequenceTokenRef.current + 1;
+    audioSequenceTokenRef.current = token;
+
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.currentTime = 0;
+      currentAudioRef.current = null;
+    }
+
+    for (const path of paths) {
+      if (audioSequenceTokenRef.current !== token) {
+        return false;
+      }
+
+      const audio = new Audio(`${AUDIO_BASE_PATH}${path}`);
+      currentAudioRef.current = audio;
+      audio.preload = "auto";
+      audio.volume = 1;
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          audio.onended = () => resolve();
+          audio.onerror = () => reject(new Error(`Audio failed: ${path}`));
+          void audio.play().catch(reject);
+        });
+      } catch (error) {
+        console.warn("Kiosk audio playback failed.", error);
+        return false;
+      }
+    }
+
+    return true;
+  }, []);
+
+  const speakWithWebSpeech = useCallback((message: string) => {
     if (!("speechSynthesis" in window)) {
       return;
     }
@@ -598,11 +781,27 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     }, 80);
   }, []);
 
+  const speakKioskMessage = useCallback(
+    (message: string, audioCue?: AudioCue) => {
+      if (audioCue) {
+        void playAudioSequence(audioCue).then((played) => {
+          if (!played) {
+            speakWithWebSpeech(message);
+          }
+        });
+        return;
+      }
+
+      speakWithWebSpeech(message);
+    },
+    [playAudioSequence, speakWithWebSpeech],
+  );
+
   const showBlockingDialog = useCallback(
-    (title: string, message: string) => {
+    (title: string, message: string, audioCue?: AudioCue) => {
       setNotice(message);
       setBlockingDialog({ title, message });
-      speakKioskMessage(message);
+      speakKioskMessage(message, audioCue);
     },
     [speakKioskMessage],
   );
@@ -624,6 +823,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           showBlockingDialog(
             "접수 정보를 확인해 주세요",
             "접수 정보를 다시 확인해 주세요.",
+            "invalidIntakeInfo",
           );
           return;
         }
@@ -648,6 +848,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           showBlockingDialog(
             "이용자 선택이 필요해요",
             "이용자를 선택해 주세요.",
+            "selectUserRequired",
           );
           return;
         }
@@ -671,6 +872,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             showBlockingDialog(
               "오늘 이용 시간이 부족해요",
               formatDailyGameLimitMessage(limitViolation.remainingMinutes),
+              limitViolation.remainingMinutes <= 0
+                ? "gameLimitFull"
+                : "gameLimitNotEnough",
             );
             return;
           }
@@ -698,13 +902,20 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           kind: resourceChoice === "space" ? "space" : "paid",
           message,
         });
-        speakKioskMessage(message);
+        speakKioskMessage(
+          message,
+          resourceChoice === "space" ? "spaceComplete" : "paidComplete",
+        );
         refresh();
         completionTimerRef.current = setTimeout(finishCompletion, 8000);
       } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "접수 처리에 실패했습니다.";
+
         showBlockingDialog(
           "접수할 수 없어요",
-          error instanceof Error ? error.message : "접수 처리에 실패했습니다.",
+          message,
+          getBlockingAudioCue(message),
         );
       }
     });
@@ -760,6 +971,10 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
       if (hasNewMemberErrors) {
         setNotice("빨간 표시된 정보를 모두 입력해 주세요.");
+        speakKioskMessage(
+          "빨간 표시된 정보를 모두 입력해 주세요.",
+          "requiredFieldsMissing",
+        );
         return;
       }
 
@@ -767,6 +982,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         showBlockingDialog(
           "아직 이용할 수 없어요",
           "나놀다판은 초등학교 1학년부터 이용할 수 있어요. 보호자와 함께 선생님께 문의해 주세요.",
+          "underageBlocked",
         );
         return;
       }
@@ -774,6 +990,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
     if (!identityReady) {
       setNotice("이용자 정보를 먼저 선택하거나 입력해 주세요.");
+      speakKioskMessage("이용자를 선택해 주세요.", "selectUserRequired");
       return;
     }
 
@@ -794,6 +1011,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     setPhoneHint("");
     setBlockingDialog(null);
     setStep("new-member");
+    speakKioskMessage("처음 온 친구는 새로 등록해 주세요.", "newMemberIntro");
   };
 
   const updateBirthDatePart = (
