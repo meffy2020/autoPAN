@@ -849,14 +849,14 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
   const entryScreen = (
     <section className="grid min-h-[80vh] items-center">
-      <div className="surface-card relative rounded-[24px] p-6 pt-24 sm:p-8 sm:pt-28">
+      <div className="surface-card relative rounded-[24px] p-6 sm:p-8">
         <Image
           src="/nanoldapan-logo.png"
           alt="나놀다판"
           width={1536}
           height={1024}
           priority
-          className="absolute left-5 top-5 h-14 w-auto rounded-[14px] object-contain sm:left-6 sm:top-6 sm:h-16"
+          className="absolute left-5 top-0 z-10 h-14 w-auto -translate-y-1/2 rounded-[14px] bg-white object-contain px-2 py-1 sm:left-6 sm:h-16"
         />
         <h2 className="text-[30px] font-black tracking-tight text-[color:var(--foreground)] sm:text-4xl">
           이용 종류를 고르세요
