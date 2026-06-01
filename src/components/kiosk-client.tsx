@@ -639,8 +639,8 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
         const message =
           resourceChoice === "space"
-            ? "접수 완료되었습니다. 재밌게 노세요!"
-            : "접수 완료되었습니다. 데스크에 가서 선생님께 문의하세요.";
+            ? "접수 완료되었습니다. 자, 이제 재밌게 놀자~"
+            : "접수 완료되었습니다. 결제하고 이용해야 해요. 데스크로 가서 선생님께 안내받아 주세요.";
 
         setCompletion({
           kind: resourceChoice === "space" ? "space" : "paid",
@@ -824,10 +824,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         {completion ? (
           <div className="fixed inset-0 z-50 grid place-items-center bg-[#111827]/45 px-5">
             <div className="w-full max-w-md rounded-[28px] bg-white p-7 text-center shadow-[0_24px_80px_rgba(15,23,42,0.28)]">
-              <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-[color:var(--accent-soft)] text-3xl">
-                🎉
-              </div>
-              <h2 className="mt-5 text-[30px] font-black tracking-tight text-[color:var(--foreground)]">
+              <h2 className="text-[30px] font-black tracking-tight text-[color:var(--foreground)]">
                 접수 완료!
               </h2>
               <p className="mt-3 text-[20px] font-bold leading-8 text-[color:var(--foreground)]">
