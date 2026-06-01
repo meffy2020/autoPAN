@@ -1,14 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import {
-  ArrowLeft,
-  Gamepad2,
-  Monitor,
-  Search,
-  Users,
-} from "lucide-react";
+import { ArrowLeft, Gamepad2, Monitor, Search, Users } from "lucide-react";
 
 import { StatusPill } from "@/components/ui-primitives";
 import {
@@ -180,9 +175,12 @@ function MemberButton({
           : "border-[color:var(--line)] bg-[color:var(--surface-strong)] hover:bg-[color:var(--surface)]"
       }`}
     >
-      <div className="text-[16px] font-semibold text-[color:var(--foreground)]">{name}</div>
+      <div className="text-[16px] font-semibold text-[color:var(--foreground)]">
+        {name}
+      </div>
       <div className="mt-1 text-[13px] text-[color:var(--muted)]">
-        {formatMemberAgeLabel(gradeOrAge)} · 보호자 연락처 {maskPhone(guardianPhone)}
+        {formatMemberAgeLabel(gradeOrAge)} · 보호자 연락처{" "}
+        {maskPhone(guardianPhone)}
       </div>
       <div className="mt-3">
         <StatusPill tone={isSelected ? "good" : "neutral"}>
@@ -230,8 +228,12 @@ function ResourceCard({
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className={`text-xs uppercase tracking-[0.24em] ${theme.text}`}>{shortLabel}</div>
-          <div className={`mt-2 text-3xl font-black tracking-tight ${theme.text}`}>
+          <div className={`text-xs uppercase tracking-[0.24em] ${theme.text}`}>
+            {shortLabel}
+          </div>
+          <div
+            className={`mt-2 text-3xl font-black tracking-tight ${theme.text}`}
+          >
             {label}
           </div>
         </div>
@@ -241,7 +243,9 @@ function ResourceCard({
       </div>
       {showCounts ? (
         <div className="mt-6 flex flex-wrap gap-2">
-          <span className={`rounded-full px-3 py-1 text-sm font-semibold ${theme.pill}`}>
+          <span
+            className={`rounded-full px-3 py-1 text-sm font-semibold ${theme.pill}`}
+          >
             빈 자리 {free}
           </span>
           <span className="rounded-full bg-white/80 px-3 py-1 text-sm font-semibold text-[color:var(--foreground)]">
@@ -272,7 +276,9 @@ function TimeButton({
           : "border-[color:var(--line)] bg-[color:var(--surface-strong)] hover:bg-[color:var(--surface)]"
       }`}
     >
-      <div className="text-[16px] font-semibold text-[color:var(--foreground)]">{label}</div>
+      <div className="text-[16px] font-semibold text-[color:var(--foreground)]">
+        {label}
+      </div>
     </button>
   );
 }
@@ -286,13 +292,16 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const [isMemberSearchLoading, setIsMemberSearchLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [hasSearchedMembers, setHasSearchedMembers] = useState(false);
-  const [resourceChoice, setResourceChoice] = useState<KioskResourceChoice | null>(null);
+  const [resourceChoice, setResourceChoice] =
+    useState<KioskResourceChoice | null>(null);
   const [pricingRuleId, setPricingRuleId] = useState("");
   const [formState, setFormState] = useState<MemberFormState>(DEFAULT_FORM);
-  const [attemptedNewMemberSubmit, setAttemptedNewMemberSubmit] = useState(false);
+  const [attemptedNewMemberSubmit, setAttemptedNewMemberSubmit] =
+    useState(false);
   const [privacyAgreed, setPrivacyAgreed] = useState(false);
   const [completion, setCompletion] = useState<CompletionState | null>(null);
-  const [blockingDialog, setBlockingDialog] = useState<BlockingDialogState | null>(null);
+  const [blockingDialog, setBlockingDialog] =
+    useState<BlockingDialogState | null>(null);
   const [notice, setNotice] = useState("");
   const [phoneHint, setPhoneHint] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -302,16 +311,25 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const searchResultsRef = useRef<HTMLDivElement>(null);
 
   const visibleMembers = sheetMembers;
-  const selectedMember = sheetMembers.find((member) => member.id === selectedMemberId);
+  const selectedMember = sheetMembers.find(
+    (member) => member.id === selectedMemberId,
+  );
   const selectedResourceType =
     resourceChoice && resourceChoice !== "space" ? resourceChoice : null;
   const pricingRules = selectedResourceType
-    ? sortPricingRules(snapshot.pricingRules, selectedResourceType).filter((rule) => !rule.isExtension)
+    ? sortPricingRules(snapshot.pricingRules, selectedResourceType).filter(
+        (rule) => !rule.isExtension,
+      )
     : [];
   const effectivePricingRuleId =
-    pricingRuleId && pricingRules.some((rule) => rule.id === pricingRuleId) ? pricingRuleId : "";
+    pricingRuleId && pricingRules.some((rule) => rule.id === pricingRuleId)
+      ? pricingRuleId
+      : "";
   const birthDateValue = getBirthDateValue(formState);
-  const birthDayOptions = getBirthDayOptions(formState.birthYear, formState.birthMonth);
+  const birthDayOptions = getBirthDayOptions(
+    formState.birthYear,
+    formState.birthMonth,
+  );
 
   const identityReady =
     tab === "existing"
@@ -319,16 +337,17 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       : tab === "new"
         ? Boolean(
             formState.name &&
-              formState.schoolName &&
-              birthDateValue &&
-              formState.gender &&
-              formState.guardianPhone,
+            formState.schoolName &&
+            birthDateValue &&
+            formState.gender &&
+            formState.guardianPhone,
           )
         : false;
   const canSubmit = Boolean(
     privacyAgreed &&
     identityReady &&
-      (resourceChoice === "space" || (selectedResourceType && effectivePricingRuleId)),
+    (resourceChoice === "space" ||
+      (selectedResourceType && effectivePricingRuleId)),
   );
   const resourceSummaries = {
     pc: getResourceSummary(snapshot, "pc"),
@@ -343,7 +362,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     guardianPhone: !formState.guardianPhone.trim(),
   };
   const showNewMemberErrors = attemptedNewMemberSubmit && tab === "new";
-  const hasNewMemberErrors = Object.values(missingNewMemberFields).some(Boolean);
+  const hasNewMemberErrors = Object.values(missingNewMemberFields).some(
+    Boolean,
+  );
   const errorInputClass =
     "border-red-400 bg-red-50 text-red-950 placeholder:text-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-100";
   const getInputClassName = (hasError: boolean, className = "text-[16px]") =>
@@ -397,11 +418,16 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     } catch (error) {
       setSheetMembers([]);
       setHasSearchedMembers(true);
-      setNotice(error instanceof Error ? error.message : "이용자 검색에 실패했습니다.");
+      setNotice(
+        error instanceof Error ? error.message : "이용자 검색에 실패했습니다.",
+      );
     } finally {
       setIsMemberSearchLoading(false);
       window.setTimeout(() => {
-        searchResultsRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        searchResultsRef.current?.scrollIntoView({
+          block: "nearest",
+          behavior: "smooth",
+        });
       }, 80);
     }
   };
@@ -411,7 +437,8 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       return null;
     }
 
-    const birthYear = selectedMember.gradeOrAge || getBirthYear(selectedMember.birthDate ?? "");
+    const birthYear =
+      selectedMember.gradeOrAge || getBirthYear(selectedMember.birthDate ?? "");
 
     return {
       member: {
@@ -519,11 +546,14 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     window.speechSynthesis.speak(utterance);
   }, []);
 
-  const showBlockingDialog = useCallback((title: string, message: string) => {
-    setNotice(message);
-    setBlockingDialog({ title, message });
-    speakKioskMessage(message);
-  }, [speakKioskMessage]);
+  const showBlockingDialog = useCallback(
+    (title: string, message: string) => {
+      setNotice(message);
+      setBlockingDialog({ title, message });
+      speakKioskMessage(message);
+    },
+    [speakKioskMessage],
+  );
 
   const finishCompletion = useCallback(() => {
     if (completionTimerRef.current) {
@@ -539,7 +569,10 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     startTransition(async () => {
       try {
         if (!canSubmit || !resourceChoice) {
-          showBlockingDialog("접수 정보를 확인해 주세요", "접수 정보를 다시 확인해 주세요.");
+          showBlockingDialog(
+            "접수 정보를 확인해 주세요",
+            "접수 정보를 다시 확인해 주세요.",
+          );
           return;
         }
 
@@ -560,12 +593,17 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               };
 
         if (!identityPayload) {
-          showBlockingDialog("이용자 선택이 필요해요", "이용자를 선택해 주세요.");
+          showBlockingDialog(
+            "이용자 선택이 필요해요",
+            "이용자를 선택해 주세요.",
+          );
           return;
         }
 
         if (selectedResourceType) {
-          const selectedRule = pricingRules.find((rule) => rule.id === effectivePricingRuleId);
+          const selectedRule = pricingRules.find(
+            (rule) => rule.id === effectivePricingRuleId,
+          );
           const limitViolation = selectedRule
             ? getDailyGameLimitViolation({
                 state: snapshot,
@@ -811,7 +849,15 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
   const entryScreen = (
     <section className="grid min-h-[80vh] items-center">
-      <div className="surface-card rounded-[24px] p-6 sm:p-8">
+      <div className="surface-card relative rounded-[24px] p-6 pt-24 sm:p-8 sm:pt-28">
+        <Image
+          src="/nanoldapan-logo.png"
+          alt="나놀다판"
+          width={1536}
+          height={1024}
+          priority
+          className="absolute left-5 top-5 h-14 w-auto rounded-[14px] object-contain sm:left-6 sm:top-6 sm:h-16"
+        />
         <h2 className="text-[30px] font-black tracking-tight text-[color:var(--foreground)] sm:text-4xl">
           이용 종류를 고르세요
         </h2>
@@ -824,7 +870,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               {(["pc", "nintendo", "playstation"] as const).map((type) => (
                 <ResourceCard
                   key={type}
-                  label={type === "playstation" ? "플스" : RESOURCE_TYPE_LABELS[type]}
+                  label={
+                    type === "playstation" ? "플스" : RESOURCE_TYPE_LABELS[type]
+                  }
                   shortLabel={RESOURCE_TYPE_SHORT_LABELS[type]}
                   icon={type === "pc" ? Monitor : Gamepad2}
                   theme={RESOURCE_CARD_THEME[type]}
@@ -908,7 +956,10 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             검색
           </button>
         </div>
-        <div ref={searchResultsRef} className="mt-6 max-h-[42vh] space-y-3 overflow-y-auto pr-1">
+        <div
+          ref={searchResultsRef}
+          className="mt-6 max-h-[42vh] space-y-3 overflow-y-auto pr-1"
+        >
           {visibleMembers.slice(0, 8).map((member) => (
             <MemberButton
               key={member.id}
@@ -966,7 +1017,10 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           <input
             value={formState.name}
             onChange={(event) =>
-              setFormState((current) => ({ ...current, name: event.target.value }))
+              setFormState((current) => ({
+                ...current,
+                name: event.target.value,
+              }))
             }
             className={getInputClassName(missingNewMemberFields.name)}
             placeholder="예: 김하늘"
@@ -984,7 +1038,10 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
                 key={school}
                 type="button"
                 onClick={() => {
-                  setFormState((current) => ({ ...current, schoolName: school }));
+                  setFormState((current) => ({
+                    ...current,
+                    schoolName: school,
+                  }));
                   setNotice("");
                 }}
                 className={`rounded-[18px] border px-4 py-4 text-[16px] font-bold transition ${
@@ -992,7 +1049,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
                     ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
                     : showNewMemberErrors && missingNewMemberFields.schoolName
                       ? "border-red-400 bg-red-50 text-red-700"
-                    : "border-[color:var(--line)] bg-[color:var(--surface)] text-[color:var(--foreground)]"
+                      : "border-[color:var(--line)] bg-[color:var(--surface)] text-[color:var(--foreground)]"
                 }`}
               >
                 {school}
@@ -1002,7 +1059,10 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           <input
             value={formState.schoolName}
             onChange={(event) => {
-              setFormState((current) => ({ ...current, schoolName: event.target.value }));
+              setFormState((current) => ({
+                ...current,
+                schoolName: event.target.value,
+              }));
               setNotice("");
             }}
             className={getInputClassName(missingNewMemberFields.schoolName)}
@@ -1018,7 +1078,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           <div className="grid grid-cols-3 gap-3">
             <select
               value={formState.birthYear}
-              onChange={(event) => updateBirthDatePart("birthYear", event.target.value)}
+              onChange={(event) =>
+                updateBirthDatePart("birthYear", event.target.value)
+              }
               className={getInputClassName(
                 missingNewMemberFields.birthDate,
                 "min-h-[58px] text-[17px] font-semibold",
@@ -1033,7 +1095,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             </select>
             <select
               value={formState.birthMonth}
-              onChange={(event) => updateBirthDatePart("birthMonth", event.target.value)}
+              onChange={(event) =>
+                updateBirthDatePart("birthMonth", event.target.value)
+              }
               className={getInputClassName(
                 missingNewMemberFields.birthDate,
                 "min-h-[58px] text-[17px] font-semibold",
@@ -1048,7 +1112,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             </select>
             <select
               value={formState.birthDay}
-              onChange={(event) => updateBirthDatePart("birthDay", event.target.value)}
+              onChange={(event) =>
+                updateBirthDatePart("birthDay", event.target.value)
+              }
               className={getInputClassName(
                 missingNewMemberFields.birthDate,
                 "min-h-[58px] text-[17px] font-semibold",
@@ -1089,7 +1155,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
                     ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
                     : showNewMemberErrors && missingNewMemberFields.gender
                       ? "border-red-400 bg-red-50 text-red-700"
-                    : "border-[color:var(--line)] bg-[color:var(--surface)] text-[color:var(--foreground)]"
+                      : "border-[color:var(--line)] bg-[color:var(--surface)] text-[color:var(--foreground)]"
                 }`}
               >
                 {label}
@@ -1110,7 +1176,11 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             className={getInputClassName(missingNewMemberFields.guardianPhone)}
             placeholder="예: 01012345678"
           />
-          {phoneHint ? <p className="mt-1 text-sm font-semibold text-[color:var(--muted)]">{phoneHint}</p> : null}
+          {phoneHint ? (
+            <p className="mt-1 text-sm font-semibold text-[color:var(--muted)]">
+              {phoneHint}
+            </p>
+          ) : null}
           {showNewMemberErrors && missingNewMemberFields.guardianPhone
             ? errorText("보호자 연락처를 입력해 주세요.")
             : null}
@@ -1143,16 +1213,17 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               보호자 연락처, 이용 항목과 접수·이용 기록
             </p>
             <p>
-              <strong>이용목적</strong>: 나놀다판 이용 접수, 현장 운영과 안전 확인,
-              노원청소년센터 행사 홍보 및 만족도 조사 문자 발송
+              <strong>이용목적</strong>: 나놀다판 이용 접수, 현장 운영과 안전
+              확인, 노원청소년센터 행사 홍보 및 만족도 조사 문자 발송
             </p>
             <p>
-              <strong>보유·이용기간</strong>: 운영 및 내부 관리 목적 달성 후 센터 기준에
-              따라 보관·파기합니다.
+              <strong>보유·이용기간</strong>: 운영 및 내부 관리 목적 달성 후
+              센터 기준에 따라 보관·파기합니다.
             </p>
             <p>
-              <strong>동의 거부 안내</strong>: 개인정보 수집·이용에 동의하지 않을 수
-              있으며, 이 경우 키오스크 접수가 제한될 수 있어 선생님께 문의해 주세요.
+              <strong>동의 거부 안내</strong>: 개인정보 수집·이용에 동의하지
+              않을 수 있으며, 이 경우 키오스크 접수가 제한될 수 있어 선생님께
+              문의해 주세요.
             </p>
           </div>
         </div>
