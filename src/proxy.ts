@@ -4,6 +4,7 @@ const PUBLIC_EXACT_PATHS = new Set([
   "/kiosk",
   "/manifest.webmanifest",
   "/icon.svg",
+  "/nanoldapan-logo.png",
   "/favicon.ico",
   "/sw.js",
 ]);
