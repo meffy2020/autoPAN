@@ -856,7 +856,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           width={1536}
           height={1024}
           priority
-          className="absolute left-5 top-0 z-10 h-14 w-auto -translate-y-1/2 rounded-[14px] bg-white object-contain px-2 py-1 sm:left-6 sm:h-16"
+          className="absolute left-5 top-0 z-10 h-20 w-auto -translate-y-1/2 object-contain sm:left-6 sm:h-24"
         />
         <h2 className="text-[30px] font-black tracking-tight text-[color:var(--foreground)] sm:text-4xl">
           이용 종류를 고르세요
