@@ -307,6 +307,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const [isPending, startTransition] = useTransition();
   const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechVoicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const speechUnlockedRef = useRef(false);
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultsRef = useRef<HTMLDivElement>(null);
 
@@ -518,18 +521,43 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   }, [resetFlow]);
 
   useEffect(() => {
-    const unlockSpeech = () => {
-      if ("speechSynthesis" in window) {
-        window.speechSynthesis.resume();
-      }
+    if (!("speechSynthesis" in window)) {
+      return;
+    }
+
+    const loadVoices = () => {
+      speechVoicesRef.current = window.speechSynthesis.getVoices();
     };
 
+    const unlockSpeech = () => {
+      const synth = window.speechSynthesis;
+      loadVoices();
+      synth.resume();
+
+      if (speechUnlockedRef.current) {
+        return;
+      }
+
+      speechUnlockedRef.current = true;
+      const primer = new SpeechSynthesisUtterance(" ");
+      primer.lang = "ko-KR";
+      primer.volume = 0.01;
+      primer.rate = 1;
+      currentUtteranceRef.current = primer;
+      synth.speak(primer);
+    };
+
+    loadVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
     window.addEventListener("pointerdown", unlockSpeech, { once: true });
-    window.addEventListener("touchstart", unlockSpeech, { once: true });
+    window.addEventListener("touchend", unlockSpeech, { once: true });
+    window.addEventListener("click", unlockSpeech, { once: true });
 
     return () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
       window.removeEventListener("pointerdown", unlockSpeech);
-      window.removeEventListener("touchstart", unlockSpeech);
+      window.removeEventListener("touchend", unlockSpeech);
+      window.removeEventListener("click", unlockSpeech);
     };
   }, []);
 
@@ -538,12 +566,36 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       return;
     }
 
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.resume();
+    const synth = window.speechSynthesis;
+    const voices =
+      speechVoicesRef.current.length > 0
+        ? speechVoicesRef.current
+        : synth.getVoices();
+    const koreanVoice =
+      voices.find((voice) => voice.lang.toLowerCase() === "ko-kr") ??
+      voices.find((voice) => voice.lang.toLowerCase().startsWith("ko"));
     const utterance = new SpeechSynthesisUtterance(message);
-    utterance.lang = "ko-KR";
-    utterance.rate = 0.95;
-    window.speechSynthesis.speak(utterance);
+
+    utterance.lang = koreanVoice?.lang ?? "ko-KR";
+    utterance.rate = 0.92;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    if (koreanVoice) {
+      utterance.voice = koreanVoice;
+    }
+
+    utterance.onerror = (event) => {
+      console.warn("Kiosk TTS failed.", { error: event.error });
+    };
+
+    currentUtteranceRef.current = utterance;
+    synth.cancel();
+    synth.resume();
+    window.setTimeout(() => {
+      synth.resume();
+      synth.speak(utterance);
+    }, 80);
   }, []);
 
   const showBlockingDialog = useCallback(
