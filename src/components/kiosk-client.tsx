@@ -927,7 +927,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               <p className="text-[16px] font-semibold">
                 {visibleMembers.length === 0
                   ? "이름이 안 보여요."
-                  : "찾는 학생이 아니면 새로 등록할 수 있어요."}
+                  : "내 정보가 없으면 새로 등록해요."}
               </p>
               <button
                 type="button"
