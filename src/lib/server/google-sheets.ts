@@ -2,7 +2,7 @@ import "server-only";
 
 import { google } from "googleapis";
 
-import type { PricingRule, ResourceType } from "@/lib/domain";
+import type { Member, PricingRule, ResourceType } from "@/lib/domain";
 import type { MemberInput } from "@/lib/server/state";
 
 export type KioskSheetMetadata = {
@@ -77,7 +77,10 @@ function normalizePrivateKey(value?: string) {
 
   if (!key.includes("BEGIN PRIVATE KEY")) {
     try {
-      key = Buffer.from(key, "base64").toString("utf8").replace(/\\n/g, "\n").trim();
+      key = Buffer.from(key, "base64")
+        .toString("utf8")
+        .replace(/\\n/g, "\n")
+        .trim();
     } catch {}
   }
 
@@ -85,8 +88,30 @@ function normalizePrivateKey(value?: string) {
 }
 
 function getTabName(resourceType: ResourceType) {
-  return process.env[TAB_ENV_NAMES[resourceType]]?.trim() || TAB_NAMES[resourceType];
+  return (
+    process.env[TAB_ENV_NAMES[resourceType]]?.trim() || TAB_NAMES[resourceType]
+  );
 }
+
+const GAME_SHEET_RESOURCE_TYPES = [
+  "pc",
+  "nintendo",
+  "playstation",
+] as const satisfies ResourceType[];
+const SHEET_NAME_COLUMN_INDEX = 2;
+const SHEET_PHONE_COLUMN_INDEX = 14;
+const SHEET_PC_AMOUNT_COLUMN_INDEX = 16;
+const SHEET_RENTAL_AMOUNT_COLUMN_INDEX = 17;
+
+export type DailyGameSheetUsage = {
+  minutes: number;
+  rows: Array<{
+    resourceType: (typeof GAME_SHEET_RESOURCE_TYPES)[number];
+    rowNumber: number;
+    amount: number;
+    minutes: number;
+  }>;
+};
 
 function getSheetRange(tabName: string, range: string) {
   return `'${tabName.replace(/'/g, "''")}'!${range}`;
@@ -159,7 +184,10 @@ function toBirthDate(value?: string) {
   }
 
   if (/^\d{6}$/.test(normalized)) {
-    const yearPrefix = Number(normalized.slice(0, 2)) <= new Date().getFullYear() % 100 ? "20" : "19";
+    const yearPrefix =
+      Number(normalized.slice(0, 2)) <= new Date().getFullYear() % 100
+        ? "20"
+        : "19";
     return `${yearPrefix}${normalized.slice(0, 2)}-${normalized.slice(2, 4)}-${normalized.slice(4, 6)}`;
   }
 
@@ -201,7 +229,12 @@ function getGenderFromAgeColumns(row: string[]) {
 function toGender(value?: string) {
   const normalized = normalizeSearch(value);
 
-  if (normalized === "남" || normalized === "남자" || normalized === "male" || normalized === "m") {
+  if (
+    normalized === "남" ||
+    normalized === "남자" ||
+    normalized === "male" ||
+    normalized === "m"
+  ) {
     return "male";
   }
 
@@ -217,20 +250,20 @@ function toGender(value?: string) {
   return undefined;
 }
 
-function toAppendLayoutMember(row: string[], index: number): KioskSheetMember | null {
+function toAppendLayoutMember(
+  row: string[],
+  index: number,
+): KioskSheetMember | null {
   const name = cell(row, 2);
   const guardianPhone =
-    row.findLast((value) => /^01\d{8,9}$/.test(normalizePhone(value))) ?? cell(row, 14);
+    row.findLast((value) => /^01\d{8,9}$/.test(normalizePhone(value))) ??
+    cell(row, 14);
 
   if (!name || !guardianPhone) {
     return null;
   }
 
-  const birthDate =
-    row
-      .slice(4, 14)
-      .map(toBirthDate)
-      .find(Boolean) ?? "";
+  const birthDate = row.slice(4, 14).map(toBirthDate).find(Boolean) ?? "";
 
   return {
     id: `member-${normalizePhone(guardianPhone) || index}-${normalizeSearch(name)}`,
@@ -259,7 +292,8 @@ function formatBirthForSheet(value?: string) {
 
 function buildBirthDateColumns(submission: KioskSheetSubmission) {
   const values = Array.from({ length: 10 }, () => "");
-  const birthValue = submission.metadata?.birthDate ?? submission.member.gradeOrAge;
+  const birthValue =
+    submission.metadata?.birthDate ?? submission.member.gradeOrAge;
   const birthYear = parseBirthYear(birthValue);
   const birthForSheet = formatBirthForSheet(birthValue);
   const age = getKoreanAge(birthValue, submission.member.gradeOrAge);
@@ -295,7 +329,8 @@ function buildKioskSubmissionRow(
 ) {
   const isSpaceVisit = submission.resourceType === "space";
   const isRentalGameVisit =
-    submission.resourceType === "nintendo" || submission.resourceType === "playstation";
+    submission.resourceType === "nintendo" ||
+    submission.resourceType === "playstation";
   const amount = submission.pricingRule?.amount ?? 0;
   const spaceDetail = submission.metadata?.spaceDetail?.trim() || "공간이용";
 
@@ -312,12 +347,12 @@ function buildKioskSubmissionRow(
   ];
 }
 
-function getTodaySheetLabel() {
+function getTodaySheetLabel(now = new Date()) {
   const parts = new Intl.DateTimeFormat("ko-KR", {
     timeZone: "Asia/Seoul",
     month: "numeric",
     day: "numeric",
-  }).formatToParts(new Date());
+  }).formatToParts(now);
   const value = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((part) => part.type === type)?.value ?? "";
 
@@ -333,7 +368,10 @@ function isWritableSubmissionRow(row: string[], resourceType: ResourceType) {
     return false;
   }
 
-  const protectedColumnIndexes = Array.from({ length: 18 }, (_, index) => index + 1);
+  const protectedColumnIndexes = Array.from(
+    { length: 18 },
+    (_, index) => index + 1,
+  );
   const hasSpaceMarkerOnly =
     resourceType === "space" &&
     normalizeSearch(cell(row, 15)) === "공간이용" &&
@@ -350,7 +388,9 @@ function isWritableSubmissionRow(row: string[], resourceType: ResourceType) {
 
 function findSheetWriteRow(rows: string[][], resourceType: ResourceType) {
   const todayLabel = getTodaySheetLabel();
-  const todayRowIndex = rows.findLastIndex((row) => cell(row, 0) === todayLabel);
+  const todayRowIndex = rows.findLastIndex(
+    (row) => cell(row, 0) === todayLabel,
+  );
 
   if (todayRowIndex < 0) {
     throw new Error(`${todayLabel} 날짜 행을 찾을 수 없습니다.`);
@@ -360,7 +400,10 @@ function findSheetWriteRow(rows: string[][], resourceType: ResourceType) {
     const row = rows[index] ?? [];
     const firstCell = cell(row, 0);
 
-    if (index > todayRowIndex && (firstCell.startsWith("마감") || isSheetDateLabel(firstCell))) {
+    if (
+      index > todayRowIndex &&
+      (firstCell.startsWith("마감") || isSheetDateLabel(firstCell))
+    ) {
       break;
     }
 
@@ -370,6 +413,120 @@ function findSheetWriteRow(rows: string[][], resourceType: ResourceType) {
   }
 
   throw new Error(`${todayLabel} 날짜 구간에 비어 있는 접수 행이 없습니다.`);
+}
+
+function parseSheetAmount(value?: string) {
+  const normalized = (value ?? "").replace(/[^\d.-]/g, "");
+  const parsed = Number(normalized);
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function amountToGameMinutes(
+  resourceType: ResourceType,
+  amount: number,
+  pricingRules: PricingRule[],
+) {
+  if (amount <= 0) {
+    return 0;
+  }
+
+  const matchingRule = pricingRules
+    .filter(
+      (rule) =>
+        rule.resourceType === resourceType &&
+        !rule.isExtension &&
+        rule.amount === amount,
+    )
+    .sort((left, right) => right.minutes - left.minutes)[0];
+
+  if (matchingRule) {
+    return matchingRule.minutes;
+  }
+
+  return Math.max(Math.round(amount / 500) * 30, 0);
+}
+
+function getAmountColumnIndex(resourceType: ResourceType) {
+  return resourceType === "pc"
+    ? SHEET_PC_AMOUNT_COLUMN_INDEX
+    : SHEET_RENTAL_AMOUNT_COLUMN_INDEX;
+}
+
+function getTodaySegmentRows(rows: string[][], now = new Date()) {
+  const todayLabel = getTodaySheetLabel(now);
+  const todayRowIndex = rows.findLastIndex(
+    (row) => cell(row, 0) === todayLabel,
+  );
+
+  if (todayRowIndex < 0) {
+    return [];
+  }
+
+  const segmentRows: Array<{ row: string[]; rowNumber: number }> = [];
+
+  for (let index = todayRowIndex; index < rows.length; index += 1) {
+    const row = rows[index] ?? [];
+    const firstCell = cell(row, 0);
+
+    if (
+      index > todayRowIndex &&
+      (firstCell.startsWith("마감") || isSheetDateLabel(firstCell))
+    ) {
+      break;
+    }
+
+    segmentRows.push({ row, rowNumber: index + 1 });
+  }
+
+  return segmentRows;
+}
+
+export function getDailyGameSheetUsageFromRows({
+  rowsByResourceType,
+  member,
+  pricingRules,
+  now = new Date(),
+}: {
+  rowsByResourceType: Partial<
+    Record<(typeof GAME_SHEET_RESOURCE_TYPES)[number], string[][]>
+  >;
+  member: Pick<Member, "name" | "guardianPhone">;
+  pricingRules: PricingRule[];
+  now?: Date;
+}): DailyGameSheetUsage {
+  const targetName = normalizeSearch(member.name);
+  const targetPhone = normalizePhone(member.guardianPhone);
+  const usageRows: DailyGameSheetUsage["rows"] = [];
+
+  GAME_SHEET_RESOURCE_TYPES.forEach((resourceType) => {
+    const rows = rowsByResourceType[resourceType] ?? [];
+
+    getTodaySegmentRows(rows, now).forEach(({ row, rowNumber }) => {
+      if (
+        normalizeSearch(cell(row, SHEET_NAME_COLUMN_INDEX)) !== targetName ||
+        normalizePhone(cell(row, SHEET_PHONE_COLUMN_INDEX)) !== targetPhone
+      ) {
+        return;
+      }
+
+      const amount = parseSheetAmount(
+        cell(row, getAmountColumnIndex(resourceType)),
+      );
+      const minutes = amountToGameMinutes(resourceType, amount, pricingRules);
+
+      if (minutes <= 0) {
+        return;
+      }
+
+      usageRows.push({ resourceType, rowNumber, amount, minutes });
+    });
+  });
+
+  return {
+    minutes: usageRows.reduce((sum, row) => sum + row.minutes, 0),
+    rows: usageRows,
+  };
 }
 
 function maskPhoneForLog(value?: string) {
@@ -420,7 +577,9 @@ function readHeaderMemberRows(rows: string[][]) {
 
     if (rows.length > 0 && fallbackMembers.length === 0) {
       console.warn("사용자DB header mapping failed.", {
-        firstRows: rows.slice(0, 5).map((row) => row.map((value) => (value ? "[value]" : ""))),
+        firstRows: rows
+          .slice(0, 5)
+          .map((row) => row.map((value) => (value ? "[value]" : ""))),
         rowCount: rows.length,
       });
     }
@@ -454,8 +613,18 @@ function readHeaderMemberRows(rows: string[][]) {
     "phone",
   ]);
 
-  const schoolIndex = findColumnIndex(headers, ["학교", "학교명", "소속", "school"]);
-  const birthDateIndex = findColumnIndex(headers, ["생년월일", "출생일", "생일", "birth"]);
+  const schoolIndex = findColumnIndex(headers, [
+    "학교",
+    "학교명",
+    "소속",
+    "school",
+  ]);
+  const birthDateIndex = findColumnIndex(headers, [
+    "생년월일",
+    "출생일",
+    "생일",
+    "birth",
+  ]);
   const birthYearIndex = findColumnIndex(headers, [
     "출생연도",
     "생년",
@@ -463,7 +632,12 @@ function readHeaderMemberRows(rows: string[][]) {
     "학년/나이",
     "학년",
   ]);
-  const genderIndex = findColumnIndex(headers, ["성별", "남여", "남녀", "gender"]);
+  const genderIndex = findColumnIndex(headers, [
+    "성별",
+    "남여",
+    "남녀",
+    "gender",
+  ]);
 
   return bodyRows
     .map((row, index): KioskSheetMember | null => {
@@ -474,14 +648,17 @@ function readHeaderMemberRows(rows: string[][]) {
         return null;
       }
 
-      const birthDate = birthDateIndex >= 0 ? cell(row, birthDateIndex) : undefined;
+      const birthDate =
+        birthDateIndex >= 0 ? cell(row, birthDateIndex) : undefined;
       const gradeOrAge =
-        toBirthYear(birthDate) || (birthYearIndex >= 0 ? toBirthYear(cell(row, birthYearIndex)) : "");
+        toBirthYear(birthDate) ||
+        (birthYearIndex >= 0 ? toBirthYear(cell(row, birthYearIndex)) : "");
 
       return {
         id: `member-${normalizePhone(guardianPhone) || index}-${normalizeSearch(name)}`,
         name,
-        schoolName: schoolIndex >= 0 ? cell(row, schoolIndex) || undefined : undefined,
+        schoolName:
+          schoolIndex >= 0 ? cell(row, schoolIndex) || undefined : undefined,
         birthDate: birthDate || undefined,
         gradeOrAge,
         gender: genderIndex >= 0 ? toGender(cell(row, genderIndex)) : undefined,
@@ -511,7 +688,11 @@ function dedupeMembers(members: KioskSheetMember[]) {
   return Array.from(deduped.values());
 }
 
-function filterMembers(members: KioskSheetMember[], query: string, limit: number) {
+function filterMembers(
+  members: KioskSheetMember[],
+  query: string,
+  limit: number,
+) {
   const normalizedQuery = normalizeSearch(query);
   const normalizedPhoneQuery = normalizePhone(query);
 
@@ -546,7 +727,8 @@ export async function searchKioskMembersFromSheet(query = "", limit = 8) {
     scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
   });
   const sheets = google.sheets({ version: "v4", auth });
-  const range = process.env.GOOGLE_SHEETS_MEMBER_RANGE?.trim() || "'사용자DB'!A:Z";
+  const range =
+    process.env.GOOGLE_SHEETS_MEMBER_RANGE?.trim() || "'사용자DB'!A:Z";
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: config.spreadsheetId,
     range,
@@ -556,11 +738,15 @@ export async function searchKioskMembersFromSheet(query = "", limit = 8) {
   return filterMembers(dedupeMembers(readHeaderMemberRows(rows)), query, limit);
 }
 
-export async function appendKioskSubmissionToSheet(submission: KioskSheetSubmission) {
+export async function appendKioskSubmissionToSheet(
+  submission: KioskSheetSubmission,
+) {
   const config = getSheetsConfig();
 
   if (!config) {
-    console.warn("Google Sheets env vars are missing. Skipping kiosk sheet append.");
+    console.warn(
+      "Google Sheets env vars are missing. Skipping kiosk sheet append.",
+    );
     return;
   }
 
@@ -582,7 +768,9 @@ export async function appendKioskSubmissionToSheet(submission: KioskSheetSubmiss
   const currentRow = rows[writeRowIndex] ?? [];
 
   if (!isWritableSubmissionRow(currentRow, submission.resourceType)) {
-    throw new Error(`${writeRowIndex + 1}행에 기존 접수 데이터가 있어 덮어쓰지 않았습니다.`);
+    throw new Error(
+      `${writeRowIndex + 1}행에 기존 접수 데이터가 있어 덮어쓰지 않았습니다.`,
+    );
   }
 
   console.info("Google Sheets kiosk write target.", {
@@ -595,10 +783,56 @@ export async function appendKioskSubmissionToSheet(submission: KioskSheetSubmiss
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: config.spreadsheetId,
-    range: getSheetRange(tabName, `B${writeRowIndex + 1}:S${writeRowIndex + 1}`),
+    range: getSheetRange(
+      tabName,
+      `B${writeRowIndex + 1}:S${writeRowIndex + 1}`,
+    ),
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: [row],
     },
+  });
+}
+
+export async function getDailyGameSheetUsage({
+  member,
+  pricingRules,
+  now = new Date(),
+}: {
+  member: Pick<Member, "name" | "guardianPhone">;
+  pricingRules: PricingRule[];
+  now?: Date;
+}) {
+  const config = getSheetsConfig();
+
+  if (!config) {
+    return null;
+  }
+
+  const auth = new google.auth.JWT({
+    email: config.clientEmail,
+    key: config.privateKey,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+  });
+  const sheets = google.sheets({ version: "v4", auth });
+  const ranges = GAME_SHEET_RESOURCE_TYPES.map((resourceType) =>
+    getSheetRange(getTabName(resourceType), "A:T"),
+  );
+  const response = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId: config.spreadsheetId,
+    ranges,
+  });
+  const rowsByResourceType = Object.fromEntries(
+    GAME_SHEET_RESOURCE_TYPES.map((resourceType, index) => [
+      resourceType,
+      (response.data.valueRanges?.[index]?.values ?? []) as string[][],
+    ]),
+  ) as Record<(typeof GAME_SHEET_RESOURCE_TYPES)[number], string[][]>;
+
+  return getDailyGameSheetUsageFromRows({
+    rowsByResourceType,
+    member,
+    pricingRules,
+    now,
   });
 }

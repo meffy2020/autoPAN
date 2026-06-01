@@ -31,7 +31,15 @@ import {
   startWalkInSessionSchema,
   updateSettingsSchema,
 } from "@/lib/validation";
-import { appendKioskSubmissionToSheet } from "@/lib/server/google-sheets";
+import {
+  appendKioskSubmissionToSheet,
+  getDailyGameSheetUsage,
+} from "@/lib/server/google-sheets";
+import {
+  formatDailyGameLimitMessage,
+  isGameResourceType,
+  MAX_DAILY_GAME_MINUTES,
+} from "@/lib/kiosk-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -47,16 +55,62 @@ export async function POST(request: Request) {
     switch (body.action) {
       case "enqueueVisit": {
         const payload = enqueueVisitSchema.parse(body.payload);
+        const snapshotBeforeMutation = getSnapshot();
+        const pricingRule = snapshotBeforeMutation.pricingRules.find(
+          (item) => item.id === payload.pricingRuleId,
+        );
+
+        if (!pricingRule) {
+          throw new Error("요금제를 찾을 수 없습니다.");
+        }
+
+        if (isGameResourceType(payload.resourceType)) {
+          const policyMember =
+            payload.member ??
+            snapshotBeforeMutation.members.find(
+              (member) => member.id === payload.existingMemberId,
+            );
+
+          if (!policyMember) {
+            throw new Error("회원 정보를 입력해 주세요.");
+          }
+
+          let sheetUsage;
+
+          try {
+            sheetUsage = await getDailyGameSheetUsage({
+              member: policyMember,
+              pricingRules: snapshotBeforeMutation.pricingRules,
+            });
+          } catch (error) {
+            console.error("Daily game sheet usage lookup failed.", error);
+            throw new Error(
+              "오늘 컴퓨터·닌텐도·플스 이용 시간을 확인하지 못해 접수할 수 없어요. 선생님께 문의해 주세요.",
+            );
+          }
+
+          if (sheetUsage) {
+            const totalMinutes = sheetUsage.minutes + pricingRule.minutes;
+
+            if (totalMinutes > MAX_DAILY_GAME_MINUTES) {
+              throw new Error(
+                formatDailyGameLimitMessage(
+                  Math.max(MAX_DAILY_GAME_MINUTES - sheetUsage.minutes, 0),
+                ),
+              );
+            }
+          }
+        }
+
         const visitResult = enqueueVisit(payload);
         result = visitResult;
         const snapshot = getSnapshot();
-        const visit = snapshot.visits.find((item) => item.id === visitResult.visitId);
+        const visit = snapshot.visits.find(
+          (item) => item.id === visitResult.visitId,
+        );
         const member = visit
           ? snapshot.members.find((item) => item.id === visit.memberId)
           : undefined;
-        const pricingRule = snapshot.pricingRules.find(
-          (item) => item.id === payload.pricingRuleId,
-        );
 
         if (member) {
           await appendKioskSubmissionToSheet({
@@ -73,7 +127,9 @@ export async function POST(request: Request) {
         const visitResult = registerSpaceVisit(payload);
         result = visitResult;
         const snapshot = getSnapshot();
-        const visit = snapshot.visits.find((item) => item.id === visitResult.visitId);
+        const visit = snapshot.visits.find(
+          (item) => item.id === visitResult.visitId,
+        );
         const member = visit
           ? snapshot.members.find((item) => item.id === visit.memberId)
           : undefined;
@@ -94,7 +150,9 @@ export async function POST(request: Request) {
         result = startSession(startSessionSchema.parse(body.payload));
         break;
       case "startWalkInSession":
-        result = startWalkInSession(startWalkInSessionSchema.parse(body.payload));
+        result = startWalkInSession(
+          startWalkInSessionSchema.parse(body.payload),
+        );
         break;
       case "extendSession":
         result = extendSession(extendSessionSchema.parse(body.payload));
@@ -145,7 +203,8 @@ export async function POST(request: Request) {
     console.error("Mutation failed.", error);
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "요청 처리에 실패했습니다.",
+        error:
+          error instanceof Error ? error.message : "요청 처리에 실패했습니다.",
       },
       { status: 400 },
     );

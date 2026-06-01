@@ -8,7 +8,12 @@ import {
   isElementaryGradeOneOrOlderBirthYear,
 } from "@/lib/kiosk-policy";
 import { createId, seedState } from "@/lib/server/state";
-import { enqueueVisit, getSnapshot, registerSpaceVisit, resetDemoState } from "@/lib/server/store";
+import {
+  enqueueVisit,
+  getSnapshot,
+  registerSpaceVisit,
+  resetDemoState,
+} from "@/lib/server/store";
 
 function emptyPolicyState(now = new Date("2026-06-01T03:00:00.000Z")) {
   const state = seedState(now);
@@ -23,9 +28,16 @@ function emptyPolicyState(now = new Date("2026-06-01T03:00:00.000Z")) {
   return state;
 }
 
-function pricingRuleId(state: ReturnType<typeof emptyPolicyState>, resourceType = "pc", minutes = 30) {
+function pricingRuleId(
+  state: ReturnType<typeof emptyPolicyState>,
+  resourceType = "pc",
+  minutes = 30,
+) {
   const rule = state.pricingRules.find(
-    (item) => item.resourceType === resourceType && item.minutes === minutes && !item.isExtension,
+    (item) =>
+      item.resourceType === resourceType &&
+      item.minutes === minutes &&
+      !item.isExtension,
   );
 
   assert.ok(rule, `${resourceType} ${minutes}분 요금제가 필요합니다.`);
@@ -142,8 +154,14 @@ test("daily game planned minutes count each game visit once and exclude space/no
 });
 
 test("Korea business-day helper uses Korea-local date boundaries", () => {
-  assert.equal(getKoreaBusinessDateKey(new Date("2026-05-31T14:59:59.000Z")), "2026-05-31");
-  assert.equal(getKoreaBusinessDateKey(new Date("2026-05-31T15:00:00.000Z")), "2026-06-01");
+  assert.equal(
+    getKoreaBusinessDateKey(new Date("2026-05-31T14:59:59.000Z")),
+    "2026-05-31",
+  );
+  assert.equal(
+    getKoreaBusinessDateKey(new Date("2026-05-31T15:00:00.000Z")),
+    "2026-06-01",
+  );
 
   const now = new Date("2026-05-31T15:30:00.000Z");
   const state = emptyPolicyState(now);
@@ -192,13 +210,16 @@ test("enqueueVisit allows exactly 120 minutes and rejects over-limit without sid
 
   const firstSnapshot = getSnapshot();
   const pc90 = firstSnapshot.pricingRules.find(
-    (rule) => rule.resourceType === "pc" && rule.minutes === 90 && !rule.isExtension,
+    (rule) =>
+      rule.resourceType === "pc" && rule.minutes === 90 && !rule.isExtension,
   );
   const pc30 = firstSnapshot.pricingRules.find(
-    (rule) => rule.resourceType === "pc" && rule.minutes === 30 && !rule.isExtension,
+    (rule) =>
+      rule.resourceType === "pc" && rule.minutes === 30 && !rule.isExtension,
   );
   const pc60 = firstSnapshot.pricingRules.find(
-    (rule) => rule.resourceType === "pc" && rule.minutes === 60 && !rule.isExtension,
+    (rule) =>
+      rule.resourceType === "pc" && rule.minutes === 60 && !rule.isExtension,
   );
 
   assert.ok(pc90);
@@ -215,7 +236,9 @@ test("enqueueVisit allows exactly 120 minutes and rejects over-limit without sid
   enqueueVisit({ member, resourceType: "pc", pricingRuleId: pc30.id });
 
   const beforeRejected = getSnapshot();
-  const existingMember = beforeRejected.members.find((item) => item.name === member.name);
+  const existingMember = beforeRejected.members.find(
+    (item) => item.name === member.name,
+  );
   assert.ok(existingMember);
 
   assert.throws(
@@ -229,11 +252,16 @@ test("enqueueVisit allows exactly 120 minutes and rejects over-limit without sid
   );
 
   const afterRejected = getSnapshot();
-  const afterMember = afterRejected.members.find((item) => item.id === existingMember.id);
+  const afterMember = afterRejected.members.find(
+    (item) => item.id === existingMember.id,
+  );
 
   assert.equal(afterRejected.members.length, beforeRejected.members.length);
   assert.equal(afterRejected.visits.length, beforeRejected.visits.length);
-  assert.equal(afterRejected.queueEntries.length, beforeRejected.queueEntries.length);
+  assert.equal(
+    afterRejected.queueEntries.length,
+    beforeRejected.queueEntries.length,
+  );
   assert.equal(afterMember?.gradeOrAge, existingMember.gradeOrAge);
 });
 
@@ -242,7 +270,8 @@ test("space visits remain allowed even after game-device limit is full", () => {
 
   const snapshot = getSnapshot();
   const pc120 = snapshot.pricingRules.find(
-    (rule) => rule.resourceType === "pc" && rule.minutes === 120 && !rule.isExtension,
+    (rule) =>
+      rule.resourceType === "pc" && rule.minutes === 120 && !rule.isExtension,
   );
   assert.ok(pc120);
 
@@ -260,4 +289,92 @@ test("space visits remain allowed even after game-device limit is full", () => {
 
   assert.equal(afterSpace.visits.length, beforeSpace.visits.length + 1);
   assert.equal(afterSpace.visits[0]?.resourceType, "space");
+});
+
+test("daily game sheet usage reads only today's Korea-date segment and game tabs", async () => {
+  const { getDailyGameSheetUsageFromRows } =
+    await import("@/lib/server/google-sheets");
+  const now = new Date("2026-06-01T03:00:00.000Z");
+  const state = emptyPolicyState(now);
+  const sheetRow = ({
+    date = "",
+    name = "",
+    phone = "",
+    pcAmount = "",
+    rentalAmount = "",
+  }: {
+    date?: string;
+    name?: string;
+    phone?: string;
+    pcAmount?: string;
+    rentalAmount?: string;
+  }) => {
+    const row = Array.from({ length: 18 }, () => "");
+    row[0] = date;
+    row[2] = name;
+    row[14] = phone;
+    row[16] = pcAmount;
+    row[17] = rentalAmount;
+    return row;
+  };
+
+  const usage = getDailyGameSheetUsageFromRows({
+    rowsByResourceType: {
+      pc: [
+        sheetRow({
+          date: "5/31",
+          name: "김테스트",
+          phone: "010-1234-5678",
+          pcAmount: "2,000",
+        }),
+        sheetRow({
+          date: "6/1",
+          name: "김 테스트",
+          phone: "01012345678",
+          pcAmount: "500",
+        }),
+        sheetRow({ name: "다른아이", phone: "01012345678", pcAmount: "2,000" }),
+        sheetRow({
+          date: "6/2",
+          name: "김테스트",
+          phone: "01012345678",
+          pcAmount: "2,000",
+        }),
+      ],
+      nintendo: [
+        sheetRow({
+          date: "6/1",
+          name: "김테스트",
+          phone: "010-1234-5678",
+          rentalAmount: "1,500",
+        }),
+        sheetRow({
+          date: "마감",
+          name: "김테스트",
+          phone: "01012345678",
+          rentalAmount: "2,000",
+        }),
+      ],
+      playstation: [
+        sheetRow({
+          date: "6/1",
+          name: "김테스트",
+          phone: "01099998888",
+          rentalAmount: "2,000",
+        }),
+      ],
+    },
+    member: { name: "김 테스트", guardianPhone: "010-1234-5678" },
+    pricingRules: state.pricingRules,
+    now,
+  });
+
+  assert.equal(usage.minutes, 120);
+  assert.deepEqual(
+    usage.rows.map((row) => [row.resourceType, row.amount, row.minutes]),
+    [
+      ["pc", 500, 30],
+      ["nintendo", 1500, 90],
+    ],
+  );
 });
