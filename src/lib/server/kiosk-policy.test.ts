@@ -248,7 +248,7 @@ test("enqueueVisit allows exactly 120 minutes and rejects over-limit without sid
         resourceType: "pc",
         pricingRuleId: pc60.id,
       }),
-    /하루 2시간|2시간을 모두 이용/,
+    /하루 2시간|오늘 이용 시간이 부족해요/,
   );
 
   const afterRejected = getSnapshot();

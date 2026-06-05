@@ -121,7 +121,11 @@ function getBlockingAudioCue(message: string): AudioCue {
     return "gameLimitFull";
   }
 
-  if (message.includes("하루 2시간") || message.includes("남은 시간")) {
+  if (
+    message.includes("오늘 이용 시간이 부족해요") ||
+    message.includes("하루 2시간") ||
+    message.includes("남은 시간")
+  ) {
     return "gameLimitNotEnough";
   }
 
@@ -674,24 +678,26 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       currentUtteranceRef.current = primer;
       synth.speak(primer);
 
-      if (!audioUnlockedRef.current) {
-        audioUnlockedRef.current = true;
-        const primerAudio = new Audio(
-          `${AUDIO_BASE_PATH}${AUDIO_CUE_PATHS.invalidIntakeInfo[0]}`,
-        );
-        primerAudio.muted = true;
-        primerAudio.volume = 0;
-        primerAudio.preload = "auto";
-        void primerAudio
-          .play()
-          .then(() => {
-            primerAudio.pause();
-            primerAudio.currentTime = 0;
-          })
-          .catch(() => {
-            audioUnlockedRef.current = false;
-          });
-      }
+      void audioUnlockedRef;
+      // Audio-file unlocking is disabled; final completion guidance uses Web Speech only.
+      // if (!audioUnlockedRef.current) {
+      //   audioUnlockedRef.current = true;
+      //   const primerAudio = new Audio(
+      //     `${AUDIO_BASE_PATH}${AUDIO_CUE_PATHS.invalidIntakeInfo[0]}`,
+      //   );
+      //   primerAudio.muted = true;
+      //   primerAudio.volume = 0;
+      //   primerAudio.preload = "auto";
+      //   void primerAudio
+      //     .play()
+      //     .then(() => {
+      //       primerAudio.pause();
+      //       primerAudio.currentTime = 0;
+      //     })
+      //     .catch(() => {
+      //       audioUnlockedRef.current = false;
+      //     });
+      // }
     };
 
     loadVoices();
@@ -783,16 +789,22 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
   const speakKioskMessage = useCallback(
     (message: string, audioCue?: AudioCue) => {
-      if (audioCue) {
-        void playAudioSequence(audioCue).then((played) => {
-          if (!played) {
-            speakWithWebSpeech(message);
-          }
-        });
-        return;
-      }
+      void message;
+      void audioCue;
+      void playAudioSequence;
+      void speakWithWebSpeech;
 
-      speakWithWebSpeech(message);
+      // Voice guidance is temporarily disabled.
+      // if (audioCue) {
+      //   void playAudioSequence(audioCue).then((played) => {
+      //     if (!played) {
+      //       speakWithWebSpeech(message);
+      //     }
+      //   });
+      //   return;
+      // }
+      //
+      // speakWithWebSpeech(message);
     },
     [playAudioSequence, speakWithWebSpeech],
   );
@@ -902,10 +914,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           kind: resourceChoice === "space" ? "space" : "paid",
           message,
         });
-        speakKioskMessage(
-          message,
-          resourceChoice === "space" ? "spaceComplete" : "paidComplete",
-        );
+        speakWithWebSpeech("접수 완료되었습니다.");
         refresh();
         completionTimerRef.current = setTimeout(finishCompletion, 8000);
       } catch (error) {
@@ -981,7 +990,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       if (!isElementaryGradeOneOrOlderBirthYear(formState.birthYear)) {
         showBlockingDialog(
           "아직 이용할 수 없어요",
-          "나놀다판은 초등학교 1학년부터 이용할 수 있어요. 보호자와 함께 선생님께 문의해 주세요.",
+          "나놀다판은 초등학교 1학년부터 이용할 수 있어요.\n보호자와 함께 선생님께 문의해 주세요.",
           "underageBlocked",
         );
         return;
@@ -1078,7 +1087,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               <h2 className="text-[26px] font-black tracking-tight text-[color:var(--foreground)]">
                 {blockingDialog.title}
               </h2>
-              <p className="mt-4 text-[18px] font-bold leading-8 text-[color:var(--foreground)]">
+              <p className="mt-4 whitespace-pre-line text-[18px] font-bold leading-8 text-[color:var(--foreground)]">
                 {blockingDialog.message}
               </p>
               <button

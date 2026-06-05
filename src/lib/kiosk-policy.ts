@@ -164,7 +164,7 @@ export function getDailyGameLimitViolation({
 
 export function formatDailyGameLimitMessage(remainingMinutes: number) {
   if (remainingMinutes <= 0) {
-    return "오늘은 컴퓨터·닌텐도·플스를 합쳐 2시간을 모두 이용했어요. 내일 다시 접수해 주세요.";
+    return "오늘 이용 시간이 부족해요.";
   }
 
   return `컴퓨터·닌텐도·플스는 하루 2시간까지만 이용할 수 있어요. 오늘 남은 시간은 ${remainingMinutes}분이라 선택한 시간으로는 접수할 수 없어요.`;
