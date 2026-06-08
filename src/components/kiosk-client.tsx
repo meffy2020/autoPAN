@@ -434,6 +434,8 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const selectedMember = sheetMembers.find(
     (member) => member.id === selectedMemberId,
   );
+  const showNewMemberRegistrationChoice =
+    hasSearchedMembers && !isMemberSearchLoading && !selectedMember;
   const selectedResourceType =
     resourceChoice && resourceChoice !== "space" ? resourceChoice : null;
   const pricingRules = selectedResourceType
@@ -1010,6 +1012,11 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   };
 
   const startNewMemberRegistration = () => {
+    if (selectedMember) {
+      setNotice("선택한 정보로 다음을 눌러 주세요.");
+      return;
+    }
+
     setTab("new");
     setSelectedMemberId("");
     setSheetMembers([]);
@@ -1249,7 +1256,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               }}
             />
           ))}
-          {!isMemberSearchLoading && hasSearchedMembers ? (
+          {showNewMemberRegistrationChoice ? (
             <div className="rounded-[18px] border border-dashed border-[color:var(--line)] bg-[color:var(--surface)] p-6 text-center text-[color:var(--muted)]">
               <p className="text-[16px] font-semibold">
                 {visibleMembers.length === 0
@@ -1261,7 +1268,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
                 onClick={startNewMemberRegistration}
                 className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-3 text-[15px] font-bold text-white"
               >
-                새 등록으로 접수하기
+                찾는 정보가 없어요
               </button>
             </div>
           ) : null}
