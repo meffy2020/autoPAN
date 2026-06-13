@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain";
 import { sortPricingRules, getResourceSummary } from "@/lib/selectors";
 import type { SnapshotEnvelope } from "@/lib/snapshot";
+import { formatMinutes } from "@/lib/utils";
 
 type FlowStep =
   | "entry"
@@ -1196,7 +1197,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
   const existingMemberScreen = (
     <section className="grid min-h-[80vh] items-center">
-      <div className="surface-card mx-auto w-full max-w-3xl rounded-[24px] p-6 sm:p-8">
+      <div className="surface-card mx-auto flex h-[calc(100vh-7rem)] max-h-[720px] w-full max-w-3xl flex-col rounded-[24px] p-6 sm:p-8">
         <h2 className="text-[26px] font-bold tracking-tight text-[color:var(--foreground)] sm:text-[30px]">
           이용자를
           <br />
@@ -1241,9 +1242,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         </div>
         <div
           ref={searchResultsRef}
-          className="mt-6 max-h-[42vh] space-y-3 overflow-y-auto pr-1"
+          className="mt-6 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
         >
-          {visibleMembers.slice(0, 8).map((member) => (
+          {visibleMembers.map((member) => (
             <MemberButton
               key={member.id}
               name={member.name}
@@ -1277,7 +1278,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           type="button"
           onClick={goToConsentStep}
           disabled={!identityReady || isPending}
-          className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-4 text-[15px] font-semibold text-white transition hover:bg-[color:var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-45"
+          className="mt-6 inline-flex w-full shrink-0 items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-4 text-[15px] font-semibold text-white transition hover:bg-[color:var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-45"
         >
           다음
         </button>
@@ -1546,7 +1547,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           {pricingRules.map((rule) => (
             <TimeButton
               key={rule.id}
-              label={rule.label}
+              label={formatMinutes(rule.minutes)}
               selected={effectivePricingRuleId === rule.id}
               onClick={() => choosePricingRule(rule.id)}
             />
