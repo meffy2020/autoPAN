@@ -133,6 +133,7 @@ const DEFAULT_FORM: MemberFormState = {
 
 const CURRENT_YEAR = new Date().getFullYear();
 const MIN_BIRTH_YEAR = CURRENT_YEAR - 25;
+const COMPLETION_TTS_PLAYBACK_RATE = 1.5;
 const BIRTH_YEAR_OPTIONS = Array.from(
   { length: CURRENT_YEAR - MIN_BIRTH_YEAR + 1 },
   (_, index) => String(CURRENT_YEAR - index),
@@ -767,6 +768,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
         const source = context.createBufferSource();
         source.buffer = audioBuffer;
+        source.playbackRate.value = COMPLETION_TTS_PLAYBACK_RATE;
         source.connect(context.destination);
         source.start(0);
 
@@ -777,6 +779,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         try {
           const audio = new Audio(ttsUrl);
           audio.preload = "auto";
+          audio.playbackRate = COMPLETION_TTS_PLAYBACK_RATE;
           await audio.play();
           return true;
         } catch (audioError) {
