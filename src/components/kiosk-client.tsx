@@ -3,7 +3,14 @@
 import Image from "next/image";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { ArrowLeft, Gamepad2, Monitor, Search, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  Gamepad2,
+  Monitor,
+  Search,
+  Users,
+  Volume2,
+} from "lucide-react";
 
 import { StatusPill } from "@/components/ui-primitives";
 import {
@@ -32,6 +39,7 @@ type KioskResourceChoice = ResourceType;
 type CompletionState = {
   kind: "paid" | "space";
   message: string;
+  speechMessage: string;
 };
 
 type BlockingDialogState = {
@@ -885,6 +893,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         setCompletion({
           kind: resourceChoice === "space" ? "space" : "paid",
           message,
+          speechMessage: completionSpeech,
         });
         if (queuedCompletionSpeech) {
           queuedCompletionSpeech.resume();
@@ -892,7 +901,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           void speakWithWebSpeech(completionSpeech);
         }
         refresh();
-        completionTimerRef.current = setTimeout(finishCompletion, 8000);
+        completionTimerRef.current = setTimeout(finishCompletion, 15_000);
       } catch (error) {
         queuedCompletionSpeech?.cancel();
         const message =
@@ -1093,8 +1102,18 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               </p>
               <button
                 type="button"
+                onClick={() => {
+                  void speakWithWebSpeech(completion.speechMessage);
+                }}
+                className="mt-7 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[color:var(--accent)] px-5 py-4 text-[16px] font-bold text-white"
+              >
+                <Volume2 className="size-5" />
+                음성 안내
+              </button>
+              <button
+                type="button"
                 onClick={finishCompletion}
-                className="mt-7 inline-flex w-full items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-4 text-[16px] font-bold text-white"
+                className="mt-3 inline-flex w-full items-center justify-center rounded-full border border-[color:var(--line)] bg-white px-5 py-4 text-[16px] font-bold text-[color:var(--foreground)]"
               >
                 확인
               </button>
