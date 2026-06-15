@@ -190,6 +190,20 @@ function maskPhone(value: string) {
   return value;
 }
 
+function getCompletionSpeechMessage(
+  memberName: string,
+  choice: KioskResourceChoice,
+) {
+  const contentLabel =
+    choice === "space"
+      ? "공간 이용"
+      : choice === "playstation"
+        ? "플스"
+        : RESOURCE_TYPE_LABELS[choice];
+
+  return `${memberName.trim()}님, ${contentLabel} 접수 완료되었습니다.`;
+}
+
 const RESOURCE_CARD_THEME: Record<
   Exclude<ResourceType, "space">,
   {
@@ -373,6 +387,8 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const speechVoicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const speechUnlockedRef = useRef(false);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const ttsBufferCacheRef = useRef<Map<string, AudioBuffer>>(new Map());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultsRef = useRef<HTMLDivElement>(null);
 
@@ -461,6 +477,38 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     primer.rate = 1;
     currentUtteranceRef.current = primer;
     synth.speak(primer);
+  }, []);
+
+  const prepareGeneratedTtsPlayback = useCallback(() => {
+    const audioWindow = window as typeof window & {
+      webkitAudioContext?: typeof AudioContext;
+    };
+    const AudioContextCtor =
+      audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
+
+    if (!AudioContextCtor) {
+      return null;
+    }
+
+    const context =
+      audioContextRef.current ?? new AudioContextCtor({ latencyHint: "interactive" });
+    audioContextRef.current = context;
+
+    if (context.state === "suspended") {
+      void context.resume();
+    }
+
+    const source = context.createBufferSource();
+    source.buffer = context.createBuffer(1, 1, context.sampleRate);
+    source.connect(context.destination);
+
+    try {
+      source.start(0);
+    } catch {
+      // Some browsers reject a second start on an already-consumed silent source.
+    }
+
+    return context;
   }, []);
 
   const resetFlow = useCallback(() => {
@@ -633,13 +681,14 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
     const unlockPlayback = () => {
       prepareSpeechSynthesis();
+      prepareGeneratedTtsPlayback();
     };
 
     loadVoices();
     window.speechSynthesis?.addEventListener("voiceschanged", loadVoices);
-    window.addEventListener("pointerdown", unlockPlayback, { once: true });
-    window.addEventListener("touchend", unlockPlayback, { once: true });
-    window.addEventListener("click", unlockPlayback, { once: true });
+    window.addEventListener("pointerdown", unlockPlayback, { passive: true });
+    window.addEventListener("touchend", unlockPlayback, { passive: true });
+    window.addEventListener("click", unlockPlayback, { passive: true });
 
     return () => {
       window.speechSynthesis?.removeEventListener("voiceschanged", loadVoices);
@@ -647,7 +696,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       window.removeEventListener("touchend", unlockPlayback);
       window.removeEventListener("click", unlockPlayback);
     };
-  }, [prepareSpeechSynthesis]);
+  }, [prepareGeneratedTtsPlayback, prepareSpeechSynthesis]);
 
   const speakWithWebSpeech = useCallback((message: string) => {
     if (!("speechSynthesis" in window)) {
@@ -686,6 +735,70 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     }, 80);
   }, []);
 
+  const playGeneratedTts = useCallback(
+    async (message: string) => {
+      const ttsUrl = `/api/tts?text=${encodeURIComponent(message)}`;
+
+      try {
+        const context = prepareGeneratedTtsPlayback();
+
+        if (!context) {
+          return false;
+        }
+
+        if (context.state === "suspended") {
+          await context.resume();
+        }
+
+        let audioBuffer = ttsBufferCacheRef.current.get(message);
+
+        if (!audioBuffer) {
+          const response = await fetch(ttsUrl, { cache: "no-store" });
+
+          if (!response.ok) {
+            throw new Error(`TTS request failed: ${response.status}`);
+          }
+
+          audioBuffer = await context.decodeAudioData(
+            await response.arrayBuffer(),
+          );
+          ttsBufferCacheRef.current.set(message, audioBuffer);
+        }
+
+        const source = context.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(context.destination);
+        source.start(0);
+
+        return true;
+      } catch (error) {
+        console.warn("Generated kiosk TTS failed.", error);
+
+        try {
+          const audio = new Audio(ttsUrl);
+          audio.preload = "auto";
+          await audio.play();
+          return true;
+        } catch (audioError) {
+          console.warn("Generated kiosk audio element TTS failed.", audioError);
+          return false;
+        }
+      }
+    },
+    [prepareGeneratedTtsPlayback],
+  );
+
+  const announceCompletion = useCallback(
+    async (message: string) => {
+      const playedGeneratedTts = await playGeneratedTts(message);
+
+      if (!playedGeneratedTts) {
+        speakWithWebSpeech(message);
+      }
+    },
+    [playGeneratedTts, speakWithWebSpeech],
+  );
+
   const speakKioskMessage = useCallback(
     (message: string, audioCue?: AudioCue) => {
       void message;
@@ -719,6 +832,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
   const submitVisit = () => {
     prepareSpeechSynthesis();
+    prepareGeneratedTtsPlayback();
 
     if (!canSubmit || !resourceChoice) {
       showBlockingDialog(
@@ -781,6 +895,11 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       }
     }
 
+    const completionSpeech = getCompletionSpeechMessage(
+      identityPayload.member.name,
+      resourceChoice,
+    );
+
     startTransition(async () => {
       try {
         if (resourceChoice === "space") {
@@ -805,7 +924,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           kind: resourceChoice === "space" ? "space" : "paid",
           message,
         });
-        speakWithWebSpeech("접수 완료되었습니다.");
+        void announceCompletion(completionSpeech);
         refresh();
         completionTimerRef.current = setTimeout(finishCompletion, 8000);
       } catch (error) {
