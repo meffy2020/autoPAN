@@ -256,6 +256,17 @@ function getCompletionSpeechMessage(
   return `${memberName.trim()}님, ${contentLabel} 접수 완료되었습니다.`;
 }
 
+function isAndroidStandaloneWebApp() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return (
+    /Android/i.test(window.navigator.userAgent) &&
+    window.matchMedia("(display-mode: standalone)").matches
+  );
+}
+
 const RESOURCE_CARD_THEME: Record<
   Exclude<ResourceType, "space">,
   {
@@ -532,6 +543,29 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     synth.speak(primer);
   }, []);
 
+  const prepareAudioPlayback = useCallback(() => {
+    if (audioUnlockedRef.current) {
+      return;
+    }
+
+    audioUnlockedRef.current = true;
+    const primerAudio = new Audio(
+      `${AUDIO_BASE_PATH}${AUDIO_CUE_PATHS.invalidIntakeInfo[0]}`,
+    );
+    primerAudio.muted = true;
+    primerAudio.volume = 0;
+    primerAudio.preload = "auto";
+    void primerAudio
+      .play()
+      .then(() => {
+        primerAudio.pause();
+        primerAudio.currentTime = 0;
+      })
+      .catch(() => {
+        audioUnlockedRef.current = false;
+      });
+  }, []);
+
   const resetFlow = useCallback(() => {
     setStep("entry");
     setTab(null);
@@ -692,51 +726,32 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   }, [resetFlow]);
 
   useEffect(() => {
-    if (!("speechSynthesis" in window)) {
-      return;
-    }
-
     const loadVoices = () => {
+      if (!("speechSynthesis" in window)) {
+        return;
+      }
+
       speechVoicesRef.current = window.speechSynthesis.getVoices();
     };
 
-    const unlockSpeech = () => {
+    const unlockPlayback = () => {
       prepareSpeechSynthesis();
-      void audioUnlockedRef;
-      // Audio-file unlocking is disabled; final completion guidance uses Web Speech only.
-      // if (!audioUnlockedRef.current) {
-      //   audioUnlockedRef.current = true;
-      //   const primerAudio = new Audio(
-      //     `${AUDIO_BASE_PATH}${AUDIO_CUE_PATHS.invalidIntakeInfo[0]}`,
-      //   );
-      //   primerAudio.muted = true;
-      //   primerAudio.volume = 0;
-      //   primerAudio.preload = "auto";
-      //   void primerAudio
-      //     .play()
-      //     .then(() => {
-      //       primerAudio.pause();
-      //       primerAudio.currentTime = 0;
-      //     })
-      //     .catch(() => {
-      //       audioUnlockedRef.current = false;
-      //     });
-      // }
+      prepareAudioPlayback();
     };
 
     loadVoices();
-    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
-    window.addEventListener("pointerdown", unlockSpeech, { once: true });
-    window.addEventListener("touchend", unlockSpeech, { once: true });
-    window.addEventListener("click", unlockSpeech, { once: true });
+    window.speechSynthesis?.addEventListener("voiceschanged", loadVoices);
+    window.addEventListener("pointerdown", unlockPlayback, { once: true });
+    window.addEventListener("touchend", unlockPlayback, { once: true });
+    window.addEventListener("click", unlockPlayback, { once: true });
 
     return () => {
-      window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
-      window.removeEventListener("pointerdown", unlockSpeech);
-      window.removeEventListener("touchend", unlockSpeech);
-      window.removeEventListener("click", unlockSpeech);
+      window.speechSynthesis?.removeEventListener("voiceschanged", loadVoices);
+      window.removeEventListener("pointerdown", unlockPlayback);
+      window.removeEventListener("touchend", unlockPlayback);
+      window.removeEventListener("click", unlockPlayback);
     };
-  }, [prepareSpeechSynthesis]);
+  }, [prepareAudioPlayback, prepareSpeechSynthesis]);
 
   const playAudioSequence = useCallback(async (cue: AudioCue) => {
     const paths = AUDIO_CUE_PATHS[cue];
@@ -776,7 +791,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
   const speakWithWebSpeech = useCallback((message: string) => {
     if (!("speechSynthesis" in window)) {
-      return;
+      return Promise.resolve(false);
     }
 
     const synth = window.speechSynthesis;
@@ -798,18 +813,57 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       utterance.voice = koreanVoice;
     }
 
-    utterance.onerror = (event) => {
-      console.warn("Kiosk TTS failed.", { error: event.error });
-    };
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const settle = (played: boolean) => {
+        if (settled) {
+          return;
+        }
 
-    currentUtteranceRef.current = utterance;
-    synth.cancel();
-    synth.resume();
-    window.setTimeout(() => {
+        settled = true;
+        resolve(played);
+      };
+
+      const timeout = window.setTimeout(() => {
+        settle(false);
+      }, 2500);
+
+      utterance.onstart = () => {
+        window.clearTimeout(timeout);
+        settle(true);
+      };
+
+      utterance.onerror = (event) => {
+        window.clearTimeout(timeout);
+        console.warn("Kiosk TTS failed.", { error: event.error });
+        settle(false);
+      };
+
+      currentUtteranceRef.current = utterance;
+      synth.cancel();
       synth.resume();
       synth.speak(utterance);
-    }, 80);
+      window.setTimeout(() => {
+        synth.resume();
+      }, 80);
+    });
   }, []);
+
+  const speakCompletionNotice = useCallback(
+    (message: string, fallbackCue: AudioCue) => {
+      if (isAndroidStandaloneWebApp()) {
+        void playAudioSequence(fallbackCue);
+        return;
+      }
+
+      void speakWithWebSpeech(message).then((played) => {
+        if (!played) {
+          void playAudioSequence(fallbackCue);
+        }
+      });
+    },
+    [playAudioSequence, speakWithWebSpeech],
+  );
 
   const speakKioskMessage = useCallback(
     (message: string, audioCue?: AudioCue) => {
@@ -854,6 +908,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
   const submitVisit = () => {
     prepareSpeechSynthesis();
+    prepareAudioPlayback();
 
     startTransition(async () => {
       try {
@@ -940,11 +995,12 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           kind: resourceChoice === "space" ? "space" : "paid",
           message,
         });
-        speakWithWebSpeech(
+        speakCompletionNotice(
           getCompletionSpeechMessage(
             identityPayload.member.name,
             resourceChoice,
           ),
+          resourceChoice === "space" ? "spaceComplete" : "paidComplete",
         );
         refresh();
         completionTimerRef.current = setTimeout(finishCompletion, 8000);
