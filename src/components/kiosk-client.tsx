@@ -242,6 +242,20 @@ function maskPhone(value: string) {
   return value;
 }
 
+function getCompletionSpeechMessage(
+  memberName: string,
+  choice: KioskResourceChoice,
+) {
+  const contentLabel =
+    choice === "space"
+      ? "공간 이용"
+      : choice === "playstation"
+        ? "플스"
+        : RESOURCE_TYPE_LABELS[choice];
+
+  return `${memberName.trim()}님, ${contentLabel} 접수 완료되었습니다.`;
+}
+
 const RESOURCE_CARD_THEME: Record<
   Exclude<ResourceType, "space">,
   {
@@ -496,6 +510,28 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     <p className="mt-1 text-sm font-semibold text-red-600">{message}</p>
   );
 
+  const prepareSpeechSynthesis = useCallback(() => {
+    if (!("speechSynthesis" in window)) {
+      return;
+    }
+
+    const synth = window.speechSynthesis;
+    speechVoicesRef.current = synth.getVoices();
+    synth.resume();
+
+    if (speechUnlockedRef.current) {
+      return;
+    }
+
+    speechUnlockedRef.current = true;
+    const primer = new SpeechSynthesisUtterance(" ");
+    primer.lang = "ko-KR";
+    primer.volume = 0.01;
+    primer.rate = 1;
+    currentUtteranceRef.current = primer;
+    synth.speak(primer);
+  }, []);
+
   const resetFlow = useCallback(() => {
     setStep("entry");
     setTab(null);
@@ -665,22 +701,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     };
 
     const unlockSpeech = () => {
-      const synth = window.speechSynthesis;
-      loadVoices();
-      synth.resume();
-
-      if (speechUnlockedRef.current) {
-        return;
-      }
-
-      speechUnlockedRef.current = true;
-      const primer = new SpeechSynthesisUtterance(" ");
-      primer.lang = "ko-KR";
-      primer.volume = 0.01;
-      primer.rate = 1;
-      currentUtteranceRef.current = primer;
-      synth.speak(primer);
-
+      prepareSpeechSynthesis();
       void audioUnlockedRef;
       // Audio-file unlocking is disabled; final completion guidance uses Web Speech only.
       // if (!audioUnlockedRef.current) {
@@ -715,7 +736,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       window.removeEventListener("touchend", unlockSpeech);
       window.removeEventListener("click", unlockSpeech);
     };
-  }, []);
+  }, [prepareSpeechSynthesis]);
 
   const playAudioSequence = useCallback(async (cue: AudioCue) => {
     const paths = AUDIO_CUE_PATHS[cue];
@@ -832,6 +853,8 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   }, [refresh, resetFlow]);
 
   const submitVisit = () => {
+    prepareSpeechSynthesis();
+
     startTransition(async () => {
       try {
         if (!canSubmit || !resourceChoice) {
@@ -917,7 +940,12 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           kind: resourceChoice === "space" ? "space" : "paid",
           message,
         });
-        speakWithWebSpeech("접수 완료되었습니다.");
+        speakWithWebSpeech(
+          getCompletionSpeechMessage(
+            identityPayload.member.name,
+            resourceChoice,
+          ),
+        );
         refresh();
         completionTimerRef.current = setTimeout(finishCompletion, 8000);
       } catch (error) {
