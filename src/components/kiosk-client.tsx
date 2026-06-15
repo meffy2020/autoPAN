@@ -9,7 +9,6 @@ import {
   Monitor,
   Search,
   Users,
-  Volume2,
 } from "lucide-react";
 
 import { StatusPill } from "@/components/ui-primitives";
@@ -39,7 +38,6 @@ type KioskResourceChoice = ResourceType;
 type CompletionState = {
   kind: "paid" | "space";
   message: string;
-  speechMessage: string;
 };
 
 type BlockingDialogState = {
@@ -190,20 +188,6 @@ function maskPhone(value: string) {
   }
 
   return value;
-}
-
-function getCompletionSpeechMessage(
-  memberName: string,
-  choice: KioskResourceChoice,
-) {
-  const contentLabel =
-    choice === "space"
-      ? "공간 이용"
-      : choice === "playstation"
-        ? "플스"
-        : RESOURCE_TYPE_LABELS[choice];
-
-  return `${memberName.trim()}님, ${contentLabel} 접수 완료되었습니다.`;
 }
 
 const RESOURCE_CARD_THEME: Record<
@@ -667,67 +651,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
   const speakWithWebSpeech = useCallback((message: string) => {
     if (!("speechSynthesis" in window)) {
-      return Promise.resolve(false);
-    }
-
-    const synth = window.speechSynthesis;
-    const voices =
-      speechVoicesRef.current.length > 0
-        ? speechVoicesRef.current
-        : synth.getVoices();
-    const koreanVoice =
-      voices.find((voice) => voice.lang.toLowerCase() === "ko-kr") ??
-      voices.find((voice) => voice.lang.toLowerCase().startsWith("ko"));
-    const utterance = new SpeechSynthesisUtterance(message);
-
-    utterance.lang = koreanVoice?.lang ?? "ko-KR";
-    utterance.rate = 0.92;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-
-    if (koreanVoice) {
-      utterance.voice = koreanVoice;
-    }
-
-    return new Promise<boolean>((resolve) => {
-      let settled = false;
-      const settle = (played: boolean) => {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        resolve(played);
-      };
-
-      const timeout = window.setTimeout(() => {
-        settle(false);
-      }, 2500);
-
-      utterance.onstart = () => {
-        window.clearTimeout(timeout);
-        settle(true);
-      };
-
-      utterance.onerror = (event) => {
-        window.clearTimeout(timeout);
-        console.warn("Kiosk TTS failed.", { error: event.error });
-        settle(false);
-      };
-
-      currentUtteranceRef.current = utterance;
-      synth.cancel();
-      synth.resume();
-      synth.speak(utterance);
-      window.setTimeout(() => {
-        synth.resume();
-      }, 80);
-    });
-  }, []);
-
-  const queueCompletionSpeech = useCallback((message: string) => {
-    if (!("speechSynthesis" in window)) {
-      return null;
+      return;
     }
 
     const synth = window.speechSynthesis;
@@ -755,18 +679,11 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
     currentUtteranceRef.current = utterance;
     synth.cancel();
-    synth.pause();
-    synth.speak(utterance);
-
-    return {
-      cancel() {
-        synth.cancel();
-        synth.resume();
-      },
-      resume() {
-        synth.resume();
-      },
-    };
+    synth.resume();
+    window.setTimeout(() => {
+      synth.resume();
+      synth.speak(utterance);
+    }, 80);
   }, []);
 
   const speakKioskMessage = useCallback(
@@ -864,12 +781,6 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       }
     }
 
-    const completionSpeech = getCompletionSpeechMessage(
-      identityPayload.member.name,
-      resourceChoice,
-    );
-    const queuedCompletionSpeech = queueCompletionSpeech(completionSpeech);
-
     startTransition(async () => {
       try {
         if (resourceChoice === "space") {
@@ -893,17 +804,11 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         setCompletion({
           kind: resourceChoice === "space" ? "space" : "paid",
           message,
-          speechMessage: completionSpeech,
         });
-        if (queuedCompletionSpeech) {
-          queuedCompletionSpeech.resume();
-        } else {
-          void speakWithWebSpeech(completionSpeech);
-        }
+        speakWithWebSpeech("접수 완료되었습니다.");
         refresh();
-        completionTimerRef.current = setTimeout(finishCompletion, 15_000);
+        completionTimerRef.current = setTimeout(finishCompletion, 8000);
       } catch (error) {
-        queuedCompletionSpeech?.cancel();
         const message =
           error instanceof Error ? error.message : "접수 처리에 실패했습니다.";
 
@@ -1102,18 +1007,8 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               </p>
               <button
                 type="button"
-                onClick={() => {
-                  void speakWithWebSpeech(completion.speechMessage);
-                }}
-                className="mt-7 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[color:var(--accent)] px-5 py-4 text-[16px] font-bold text-white"
-              >
-                <Volume2 className="size-5" />
-                음성 안내
-              </button>
-              <button
-                type="button"
                 onClick={finishCompletion}
-                className="mt-3 inline-flex w-full items-center justify-center rounded-full border border-[color:var(--line)] bg-white px-5 py-4 text-[16px] font-bold text-[color:var(--foreground)]"
+                className="mt-7 inline-flex w-full items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-4 text-[16px] font-bold text-white"
               >
                 확인
               </button>
