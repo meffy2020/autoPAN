@@ -448,7 +448,7 @@ test("sheet insertion target stays inside today's segment without reusing the da
   );
 });
 
-test("operation log rows keep troubleshooting details while masking phone values", async () => {
+test("failure operation log rows keep troubleshooting details while masking phone values", async () => {
   const { buildKioskOperationLogRow } =
     await import("@/lib/server/google-sheets");
   const row = buildKioskOperationLogRow(

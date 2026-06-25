@@ -618,7 +618,7 @@ function maskQueryForLog(value?: string) {
 export type KioskOperationLogEntry = {
   event: "mutation" | "memberSearch";
   action: string;
-  status: "success" | "failure";
+  status: "failure";
   resourceType?: ResourceType;
   sheetTarget?: Pick<KioskSheetWriteTarget, "tabName" | "rowNumber">;
   member?: Pick<MemberInput, "name" | "guardianPhone">;
@@ -639,7 +639,7 @@ export function buildKioskOperationLogRow(
     now.toISOString(),
     entry.event,
     entry.action,
-    entry.status === "success" ? "성공" : "실패",
+    "실패",
     entry.resourceType ?? "",
     entry.sheetTarget?.tabName ?? "",
     entry.sheetTarget?.rowNumber ?? "",

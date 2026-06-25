@@ -24,16 +24,6 @@ export async function GET(request: Request) {
     query = searchParams.get("q") ?? "";
     const members = await searchKioskMembersFromSheet(query, 8);
 
-    await appendKioskOperationLogSafely({
-      event: "memberSearch",
-      action: "GET /api/sheet-members",
-      status: "success",
-      searchQuery: query,
-      resultCount: members.length,
-      message: "이용자 검색 완료",
-      requestId,
-    });
-
     return NextResponse.json({ ok: true, members });
   } catch (error) {
     console.error(error);

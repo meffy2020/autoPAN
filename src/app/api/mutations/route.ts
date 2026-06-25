@@ -146,7 +146,7 @@ export async function POST(request: Request) {
 
     switch (action) {
       case "enqueueVisit": {
-        const intakeResult = await withSerializedKioskIntake(async () => {
+        result = await withSerializedKioskIntake(async () => {
           const payload = enqueueVisitSchema.parse(body.payload);
           const snapshotBeforeMutation = getSnapshot();
           const pricingRule = snapshotBeforeMutation.pricingRules.find(
@@ -230,26 +230,12 @@ export async function POST(request: Request) {
             sheetTarget: sheetTarget ?? undefined,
           };
 
-          return {
-            result: enqueueVisit(payload),
-            operationLog: {
-              event: "mutation",
-              action,
-              status: "success",
-              resourceType: payload.resourceType,
-              sheetTarget: sheetTarget ?? undefined,
-              member: policyMember,
-              message: "접수 처리 완료",
-              requestId,
-            } satisfies KioskOperationLogEntry,
-          };
+          return enqueueVisit(payload);
         });
-        await appendKioskOperationLogSafely(intakeResult.operationLog);
-        result = intakeResult.result;
         break;
       }
       case "registerSpaceVisit": {
-        const intakeResult = await withSerializedKioskIntake(async () => {
+        result = await withSerializedKioskIntake(async () => {
           const payload = registerSpaceVisitSchema.parse(body.payload);
           const snapshotBeforeMutation = getSnapshot();
           const member =
@@ -279,22 +265,8 @@ export async function POST(request: Request) {
             sheetTarget: sheetTarget ?? undefined,
           };
 
-          return {
-            result: registerSpaceVisit(payload),
-            operationLog: {
-              event: "mutation",
-              action,
-              status: "success",
-              resourceType: "space",
-              sheetTarget: sheetTarget ?? undefined,
-              member,
-              message: "공간 이용 접수 처리 완료",
-              requestId,
-            } satisfies KioskOperationLogEntry,
-          };
+          return registerSpaceVisit(payload);
         });
-        await appendKioskOperationLogSafely(intakeResult.operationLog);
-        result = intakeResult.result;
         break;
       }
       case "recordPayment":
