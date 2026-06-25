@@ -3,7 +3,11 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_EXACT_PATHS = new Set([
   "/kiosk",
   "/manifest.webmanifest",
-  "/icon.svg",
+  "/icon.png",
+  "/apple-icon.png",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-maskable-512.png",
   "/nanoldapan-logo.png",
   "/favicon.ico",
   "/sw.js",

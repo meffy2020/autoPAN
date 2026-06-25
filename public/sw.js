@@ -1,5 +1,11 @@
-const CACHE_NAME = "autopan-v3";
-const APP_SHELL = ["/kiosk", "/manifest.webmanifest", "/icon.svg"];
+const CACHE_NAME = "autopan-v4";
+const APP_SHELL = [
+  "/kiosk",
+  "/manifest.webmanifest",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/favicon.ico",
+];
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
