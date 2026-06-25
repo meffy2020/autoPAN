@@ -447,3 +447,40 @@ test("sheet insertion target stays inside today's segment without reusing the da
     /6\/1 날짜 행을 찾을 수 없습니다/,
   );
 });
+
+test("operation log rows keep troubleshooting details while masking phone values", async () => {
+  const { buildKioskOperationLogRow } =
+    await import("@/lib/server/google-sheets");
+  const row = buildKioskOperationLogRow(
+    {
+      event: "mutation",
+      action: "enqueueVisit",
+      status: "failure",
+      resourceType: "pc",
+      sheetTarget: { tabName: "컴퓨터", rowNumber: 2164 },
+      member: { name: "변지후", guardianPhone: "010-1234-3179" },
+      searchQuery: "01012343179",
+      resultCount: 1,
+      message: "오늘 이용 시간이 부족해요.",
+      requestId: "icn1::iad1::request",
+    },
+    new Date("2026-06-01T03:00:00.000Z"),
+  );
+
+  assert.deepEqual(row, [
+    "2026-06-01 12:00",
+    "2026-06-01T03:00:00.000Z",
+    "mutation",
+    "enqueueVisit",
+    "실패",
+    "pc",
+    "컴퓨터",
+    2164,
+    "변지후",
+    "010****3179",
+    "010****3179",
+    1,
+    "오늘 이용 시간이 부족해요.",
+    "icn1::iad1::request",
+  ]);
+});

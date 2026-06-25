@@ -19,6 +19,12 @@ type KioskSheetSubmission = {
   pricingRule?: Pick<PricingRule, "amount" | "label" | "minutes">;
 };
 
+export type KioskSheetWriteTarget = {
+  tabName: string;
+  rowNumber: number;
+  resourceType: ResourceType;
+};
+
 export type KioskSheetMember = {
   id: string;
   name: string;
@@ -35,6 +41,23 @@ const TAB_NAMES: Record<ResourceType, string> = {
   playstation: "플스",
   space: "무료콘텐츠",
 };
+const DEFAULT_OPERATION_LOG_TAB_NAME = "운영로그";
+const OPERATION_LOG_HEADERS = [
+  "일시",
+  "ISO시각",
+  "이벤트",
+  "작업",
+  "상태",
+  "자원",
+  "대상시트",
+  "대상행",
+  "이름",
+  "연락처",
+  "검색어",
+  "결과수",
+  "메시지",
+  "요청ID",
+];
 
 const TAB_ENV_NAMES: Record<ResourceType, string> = {
   pc: "GOOGLE_SHEETS_PC_TAB_NAME",
@@ -90,6 +113,13 @@ function normalizePrivateKey(value?: string) {
 function getTabName(resourceType: ResourceType) {
   return (
     process.env[TAB_ENV_NAMES[resourceType]]?.trim() || TAB_NAMES[resourceType]
+  );
+}
+
+function getOperationLogTabName() {
+  return (
+    process.env.GOOGLE_SHEETS_OPERATION_LOG_TAB_NAME?.trim() ||
+    DEFAULT_OPERATION_LOG_TAB_NAME
   );
 }
 
@@ -574,6 +604,145 @@ function maskPhoneForLog(value?: string) {
   return normalizePhone(value).replace(/(\d{3})\d+(\d{4})/, "$1****$2");
 }
 
+function maskQueryForLog(value?: string) {
+  const query = String(value ?? "").trim();
+  const digits = normalizePhone(query);
+
+  if (digits.length >= 8) {
+    return maskPhoneForLog(digits);
+  }
+
+  return query.slice(0, 80);
+}
+
+export type KioskOperationLogEntry = {
+  event: "mutation" | "memberSearch";
+  action: string;
+  status: "success" | "failure";
+  resourceType?: ResourceType;
+  sheetTarget?: Pick<KioskSheetWriteTarget, "tabName" | "rowNumber">;
+  member?: Pick<MemberInput, "name" | "guardianPhone">;
+  searchQuery?: string;
+  resultCount?: number;
+  message?: string;
+  requestId?: string;
+};
+
+export function buildKioskOperationLogRow(
+  entry: KioskOperationLogEntry,
+  now = new Date(),
+) {
+  const { date, time } = formatDateParts(now);
+
+  return [
+    `${date} ${time}`,
+    now.toISOString(),
+    entry.event,
+    entry.action,
+    entry.status === "success" ? "성공" : "실패",
+    entry.resourceType ?? "",
+    entry.sheetTarget?.tabName ?? "",
+    entry.sheetTarget?.rowNumber ?? "",
+    entry.member?.name ?? "",
+    maskPhoneForLog(entry.member?.guardianPhone),
+    maskQueryForLog(entry.searchQuery),
+    entry.resultCount ?? "",
+    entry.message?.slice(0, 300) ?? "",
+    entry.requestId ?? "",
+  ];
+}
+
+let operationLogSheetReady: Promise<void> | null = null;
+
+async function ensureOperationLogSheet(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  tabName: string,
+) {
+  const getExistingSheet = async () => {
+    const metadata = await sheets.spreadsheets.get({
+      spreadsheetId,
+      fields: "sheets(properties(sheetId,title))",
+    });
+
+    return metadata.data.sheets?.find(
+      (item) => item.properties?.title === tabName,
+    );
+  };
+
+  let sheet = await getExistingSheet();
+
+  if (!sheet) {
+    try {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: tabName,
+                  gridProperties: {
+                    frozenRowCount: 1,
+                  },
+                },
+              },
+            },
+          ],
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (!message.includes("already exists")) {
+        throw error;
+      }
+    }
+
+    sheet = await getExistingSheet();
+  }
+
+  if (!sheet) {
+    throw new Error(`${tabName} 탭을 만들거나 찾지 못했습니다.`);
+  }
+
+  const headerResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: getSheetRange(tabName, `A1:${String.fromCharCode(64 + OPERATION_LOG_HEADERS.length)}1`),
+  });
+  const currentHeader = (headerResponse.data.values?.[0] ?? []) as string[];
+
+  if (currentHeader.length > 0) {
+    return;
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: getSheetRange(tabName, `A1:${String.fromCharCode(64 + OPERATION_LOG_HEADERS.length)}1`),
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [OPERATION_LOG_HEADERS],
+    },
+  });
+}
+
+async function ensureOperationLogSheetOnce(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  tabName: string,
+) {
+  operationLogSheetReady ??= ensureOperationLogSheet(
+    sheets,
+    spreadsheetId,
+    tabName,
+  ).catch((error) => {
+    operationLogSheetReady = null;
+    throw error;
+  });
+
+  await operationLogSheetReady;
+}
+
 function readHeaderMemberRows(rows: string[][]) {
   const headerMatch = rows
     .slice(0, 20)
@@ -781,14 +950,14 @@ export async function searchKioskMembersFromSheet(query = "", limit = 8) {
 
 export async function appendKioskSubmissionToSheet(
   submission: KioskSheetSubmission,
-) {
+): Promise<KioskSheetWriteTarget | null> {
   const config = getSheetsConfig();
 
   if (!config) {
     console.warn(
       "Google Sheets env vars are missing. Skipping kiosk sheet append.",
     );
-    return;
+    return null;
   }
 
   const now = new Date();
@@ -856,6 +1025,54 @@ export async function appendKioskSubmissionToSheet(
       ],
     },
   });
+
+  return {
+    tabName,
+    rowNumber: insertRowIndex + 1,
+    resourceType: submission.resourceType,
+  };
+}
+
+export async function appendKioskOperationLogToSheet(
+  entry: KioskOperationLogEntry,
+) {
+  const config = getSheetsConfig();
+
+  if (!config) {
+    console.warn(
+      "Google Sheets env vars are missing. Skipping kiosk operation log append.",
+    );
+    return;
+  }
+
+  const auth = new google.auth.JWT({
+    email: config.clientEmail,
+    key: config.privateKey,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+  const sheets = google.sheets({ version: "v4", auth });
+  const tabName = getOperationLogTabName();
+
+  await ensureOperationLogSheetOnce(sheets, config.spreadsheetId, tabName);
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: config.spreadsheetId,
+    range: getSheetRange(tabName, "A:N"),
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: {
+      values: [buildKioskOperationLogRow(entry)],
+    },
+  });
+}
+
+export async function appendKioskOperationLogSafely(
+  entry: KioskOperationLogEntry,
+) {
+  try {
+    await appendKioskOperationLogToSheet(entry);
+  } catch (error) {
+    console.error("Kiosk operation log append failed.", error);
+  }
 }
 
 export async function getDailyGameSheetUsage({

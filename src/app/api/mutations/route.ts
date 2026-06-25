@@ -32,8 +32,10 @@ import {
   updateSettingsSchema,
 } from "@/lib/validation";
 import {
+  appendKioskOperationLogSafely,
   appendKioskSubmissionToSheet,
   getDailyGameSheetUsage,
+  type KioskOperationLogEntry,
 } from "@/lib/server/google-sheets";
 import {
   formatDailyGameLimitMessage,
@@ -41,10 +43,15 @@ import {
   isGameResourceType,
   MAX_DAILY_GAME_MINUTES,
 } from "@/lib/kiosk-policy";
+import type { ResourceType } from "@/lib/domain";
 
 export const dynamic = "force-dynamic";
 
 let kioskIntakeQueue: Promise<unknown> = Promise.resolve();
+const KIOSK_LOGGED_MUTATION_ACTIONS = new Set([
+  "enqueueVisit",
+  "registerSpaceVisit",
+]);
 
 function withSerializedKioskIntake<T>(task: () => Promise<T>) {
   const run = kioskIntakeQueue.then(task, task);
@@ -52,18 +59,94 @@ function withSerializedKioskIntake<T>(task: () => Promise<T>) {
   return run;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function getPayloadLogMember(
+  payload: unknown,
+): KioskOperationLogEntry["member"] {
+  if (!isRecord(payload) || !isRecord(payload.member)) {
+    return undefined;
+  }
+
+  const name = typeof payload.member.name === "string" ? payload.member.name : "";
+  const guardianPhone =
+    typeof payload.member.guardianPhone === "string"
+      ? payload.member.guardianPhone
+      : "";
+
+  if (!name && !guardianPhone) {
+    return undefined;
+  }
+
+  return { name, guardianPhone };
+}
+
+function getPayloadResourceType(payload: unknown): ResourceType | undefined {
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+
+  const resourceType = payload.resourceType;
+
+  if (
+    resourceType === "pc" ||
+    resourceType === "nintendo" ||
+    resourceType === "playstation" ||
+    resourceType === "space"
+  ) {
+    return resourceType;
+  }
+
+  return undefined;
+}
+
+function getRequestId(request: Request) {
+  return (
+    request.headers.get("x-vercel-id") ??
+    request.headers.get("x-request-id") ??
+    ""
+  );
+}
+
 export async function POST(request: Request) {
+  let action = "unknown";
+  let rawPayload: unknown;
+  let operationLogContext: Partial<KioskOperationLogEntry> | null = null;
+  const requestId = getRequestId(request);
+
+  const writeFailureLog = async (message: string) => {
+    if (!KIOSK_LOGGED_MUTATION_ACTIONS.has(action)) {
+      return;
+    }
+
+    await appendKioskOperationLogSafely({
+      event: "mutation",
+      action,
+      status: "failure",
+      resourceType:
+        operationLogContext?.resourceType ?? getPayloadResourceType(rawPayload),
+      sheetTarget: operationLogContext?.sheetTarget,
+      member: operationLogContext?.member ?? getPayloadLogMember(rawPayload),
+      message,
+      requestId,
+    });
+  };
+
   try {
     const body = (await request.json()) as {
       action: string;
       payload?: unknown;
     };
+    action = typeof body.action === "string" ? body.action : "unknown";
+    rawPayload = body.payload;
 
     let result: unknown;
 
-    switch (body.action) {
+    switch (action) {
       case "enqueueVisit": {
-        result = await withSerializedKioskIntake(async () => {
+        const intakeResult = await withSerializedKioskIntake(async () => {
           const payload = enqueueVisitSchema.parse(body.payload);
           const snapshotBeforeMutation = getSnapshot();
           const pricingRule = snapshotBeforeMutation.pricingRules.find(
@@ -83,6 +166,13 @@ export async function POST(request: Request) {
           if (!policyMember) {
             throw new Error("회원 정보를 입력해 주세요.");
           }
+          operationLogContext = {
+            event: "mutation",
+            action,
+            resourceType: payload.resourceType,
+            member: policyMember,
+            requestId,
+          };
 
           if (isGameResourceType(payload.resourceType)) {
             const localLimitViolation = getDailyGameLimitViolation({
@@ -129,19 +219,37 @@ export async function POST(request: Request) {
             }
           }
 
-          await appendKioskSubmissionToSheet({
+          const sheetTarget = await appendKioskSubmissionToSheet({
             member: policyMember,
             metadata: payload.sheetMetadata,
             resourceType: payload.resourceType,
             pricingRule,
           });
+          operationLogContext = {
+            ...operationLogContext,
+            sheetTarget: sheetTarget ?? undefined,
+          };
 
-          return enqueueVisit(payload);
+          return {
+            result: enqueueVisit(payload),
+            operationLog: {
+              event: "mutation",
+              action,
+              status: "success",
+              resourceType: payload.resourceType,
+              sheetTarget: sheetTarget ?? undefined,
+              member: policyMember,
+              message: "접수 처리 완료",
+              requestId,
+            } satisfies KioskOperationLogEntry,
+          };
         });
+        await appendKioskOperationLogSafely(intakeResult.operationLog);
+        result = intakeResult.result;
         break;
       }
       case "registerSpaceVisit": {
-        result = await withSerializedKioskIntake(async () => {
+        const intakeResult = await withSerializedKioskIntake(async () => {
           const payload = registerSpaceVisitSchema.parse(body.payload);
           const snapshotBeforeMutation = getSnapshot();
           const member =
@@ -153,15 +261,40 @@ export async function POST(request: Request) {
           if (!member) {
             throw new Error("회원 정보를 입력해 주세요.");
           }
+          operationLogContext = {
+            event: "mutation",
+            action,
+            resourceType: "space",
+            member,
+            requestId,
+          };
 
-          await appendKioskSubmissionToSheet({
+          const sheetTarget = await appendKioskSubmissionToSheet({
             member,
             metadata: payload.sheetMetadata,
             resourceType: "space",
           });
+          operationLogContext = {
+            ...operationLogContext,
+            sheetTarget: sheetTarget ?? undefined,
+          };
 
-          return registerSpaceVisit(payload);
+          return {
+            result: registerSpaceVisit(payload),
+            operationLog: {
+              event: "mutation",
+              action,
+              status: "success",
+              resourceType: "space",
+              sheetTarget: sheetTarget ?? undefined,
+              member,
+              message: "공간 이용 접수 처리 완료",
+              requestId,
+            } satisfies KioskOperationLogEntry,
+          };
         });
+        await appendKioskOperationLogSafely(intakeResult.operationLog);
+        result = intakeResult.result;
         break;
       }
       case "recordPayment":
@@ -213,6 +346,9 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof ZodError) {
       console.error("Mutation validation failed.", error.issues);
+      await writeFailureLog(
+        error.issues[0]?.message ?? "입력값이 올바르지 않습니다.",
+      );
       return NextResponse.json(
         {
           error: error.issues[0]?.message ?? "입력값이 올바르지 않습니다.",
@@ -222,6 +358,9 @@ export async function POST(request: Request) {
     }
 
     console.error("Mutation failed.", error);
+    await writeFailureLog(
+      error instanceof Error ? error.message : "요청 처리에 실패했습니다.",
+    );
     return NextResponse.json(
       {
         error:
