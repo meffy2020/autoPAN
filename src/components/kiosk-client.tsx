@@ -392,6 +392,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const ttsBufferCacheRef = useRef<Map<string, AudioBuffer>>(new Map());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultsRef = useRef<HTMLDivElement>(null);
+  const memberSearchRequestSeqRef = useRef(0);
 
   const visibleMembers = sheetMembers;
   const selectedMember = sheetMembers.find(
@@ -549,12 +550,18 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     setIsMemberSearchLoading(true);
     setNotice("");
     setSelectedMemberId("");
+    const requestSeq = memberSearchRequestSeqRef.current + 1;
+    memberSearchRequestSeqRef.current = requestSeq;
 
     try {
       const params = new URLSearchParams({ q: trimmedQuery });
       const data = await getJson<{ ok: true; members: SheetMember[] }>(
         `/api/sheet-members?${params.toString()}`,
       );
+
+      if (memberSearchRequestSeqRef.current !== requestSeq) {
+        return;
+      }
 
       setSheetMembers(data.members);
       setHasSearchedMembers(true);
@@ -570,19 +577,25 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         );
       }
     } catch (error) {
+      if (memberSearchRequestSeqRef.current !== requestSeq) {
+        return;
+      }
+
       setSheetMembers([]);
       setHasSearchedMembers(true);
       setNotice(
         error instanceof Error ? error.message : "이용자 검색에 실패했습니다.",
       );
     } finally {
-      setIsMemberSearchLoading(false);
-      window.setTimeout(() => {
-        searchResultsRef.current?.scrollIntoView({
-          block: "nearest",
-          behavior: "smooth",
-        });
-      }, 80);
+      if (memberSearchRequestSeqRef.current === requestSeq) {
+        setIsMemberSearchLoading(false);
+        window.setTimeout(() => {
+          searchResultsRef.current?.scrollIntoView({
+            block: "nearest",
+            behavior: "smooth",
+          });
+        }, 80);
+      }
     }
   };
 
@@ -1225,6 +1238,8 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             autoComplete="off"
             value={query}
             onChange={(event) => {
+              memberSearchRequestSeqRef.current += 1;
+              setIsMemberSearchLoading(false);
               setQuery(event.target.value);
               setSelectedMemberId("");
               setSheetMembers([]);
@@ -1287,7 +1302,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
         <button
           type="button"
           onClick={goToConsentStep}
-          disabled={!identityReady || isPending}
+          disabled={isPending}
           className="mt-6 inline-flex w-full shrink-0 items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-4 text-[15px] font-semibold text-white transition hover:bg-[color:var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-45"
         >
           다음

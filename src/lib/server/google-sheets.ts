@@ -386,8 +386,12 @@ function isWritableSubmissionRow(row: string[], resourceType: ResourceType) {
   return protectedColumnIndexes.every((index) => !cell(row, index));
 }
 
-function findSheetWriteRow(rows: string[][], resourceType: ResourceType) {
-  const todayLabel = getTodaySheetLabel();
+export function findSheetInsertRowIndex(
+  rows: string[][],
+  resourceType: ResourceType,
+  now = new Date(),
+) {
+  const todayLabel = getTodaySheetLabel(now);
   const todayRowIndex = rows.findLastIndex(
     (row) => cell(row, 0) === todayLabel,
   );
@@ -396,14 +400,14 @@ function findSheetWriteRow(rows: string[][], resourceType: ResourceType) {
     throw new Error(`${todayLabel} 날짜 행을 찾을 수 없습니다.`);
   }
 
-  for (let index = todayRowIndex; index < rows.length; index += 1) {
+  let segmentEndIndex = rows.length;
+
+  for (let index = todayRowIndex + 1; index < rows.length; index += 1) {
     const row = rows[index] ?? [];
     const firstCell = cell(row, 0);
 
-    if (
-      index > todayRowIndex &&
-      (firstCell.startsWith("마감") || isSheetDateLabel(firstCell))
-    ) {
+    if (firstCell.startsWith("마감") || isSheetDateLabel(firstCell)) {
+      segmentEndIndex = index;
       break;
     }
 
@@ -412,7 +416,44 @@ function findSheetWriteRow(rows: string[][], resourceType: ResourceType) {
     }
   }
 
-  throw new Error(`${todayLabel} 날짜 구간에 비어 있는 접수 행이 없습니다.`);
+  return segmentEndIndex;
+}
+
+function toUserEnteredCell(value: string | number) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return {
+      userEnteredValue: {
+        numberValue: value,
+      },
+    };
+  }
+
+  return {
+    userEnteredValue: {
+      stringValue: String(value ?? ""),
+    },
+  };
+}
+
+async function getSheetId(
+  sheets: ReturnType<typeof google.sheets>,
+  spreadsheetId: string,
+  tabName: string,
+) {
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets(properties(sheetId,title))",
+  });
+  const sheet = metadata.data.sheets?.find(
+    (item) => item.properties?.title === tabName,
+  );
+  const sheetId = sheet?.properties?.sheetId;
+
+  if (sheetId === null || sheetId === undefined) {
+    throw new Error(`${tabName} 탭을 찾을 수 없습니다.`);
+  }
+
+  return sheetId;
 }
 
 function parseSheetAmount(value?: string) {
@@ -750,7 +791,8 @@ export async function appendKioskSubmissionToSheet(
     return;
   }
 
-  const { date, time } = formatDateParts();
+  const now = new Date();
+  const { date, time } = formatDateParts(now);
   const auth = new google.auth.JWT({
     email: config.clientEmail,
     key: config.privateKey,
@@ -759,37 +801,59 @@ export async function appendKioskSubmissionToSheet(
   const sheets = google.sheets({ version: "v4", auth });
   const tabName = getTabName(submission.resourceType);
   const row = buildKioskSubmissionRow(submission, { date, time });
-  const valuesResponse = await sheets.spreadsheets.values.get({
-    spreadsheetId: config.spreadsheetId,
-    range: getSheetRange(tabName, "A:T"),
-  });
+  const [sheetId, valuesResponse] = await Promise.all([
+    getSheetId(sheets, config.spreadsheetId, tabName),
+    sheets.spreadsheets.values.get({
+      spreadsheetId: config.spreadsheetId,
+      range: getSheetRange(tabName, "A:T"),
+    }),
+  ]);
   const rows = (valuesResponse.data.values ?? []) as string[][];
-  const writeRowIndex = findSheetWriteRow(rows, submission.resourceType);
-  const currentRow = rows[writeRowIndex] ?? [];
-
-  if (!isWritableSubmissionRow(currentRow, submission.resourceType)) {
-    throw new Error(
-      `${writeRowIndex + 1}행에 기존 접수 데이터가 있어 덮어쓰지 않았습니다.`,
-    );
-  }
+  const insertRowIndex = findSheetInsertRowIndex(
+    rows,
+    submission.resourceType,
+    now,
+  );
 
   console.info("Google Sheets kiosk write target.", {
     tabName,
-    row: writeRowIndex + 1,
+    row: insertRowIndex + 1,
     name: submission.member.name,
     phone: maskPhoneForLog(submission.member.guardianPhone),
     resourceType: submission.resourceType,
   });
 
-  await sheets.spreadsheets.values.update({
+  await sheets.spreadsheets.batchUpdate({
     spreadsheetId: config.spreadsheetId,
-    range: getSheetRange(
-      tabName,
-      `B${writeRowIndex + 1}:S${writeRowIndex + 1}`,
-    ),
-    valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: [row],
+      requests: [
+        {
+          insertDimension: {
+            range: {
+              sheetId,
+              dimension: "ROWS",
+              startIndex: insertRowIndex,
+              endIndex: insertRowIndex + 1,
+            },
+            inheritFromBefore: insertRowIndex > 0,
+          },
+        },
+        {
+          updateCells: {
+            start: {
+              sheetId,
+              rowIndex: insertRowIndex,
+              columnIndex: 1,
+            },
+            rows: [
+              {
+                values: row.map(toUserEnteredCell),
+              },
+            ],
+            fields: "userEnteredValue",
+          },
+        },
+      ],
     },
   });
 }

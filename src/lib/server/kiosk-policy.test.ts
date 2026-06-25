@@ -378,3 +378,72 @@ test("daily game sheet usage reads only today's Korea-date segment and game tabs
     ],
   );
 });
+
+test("sheet insertion target stays inside today's segment without reusing the date row", async () => {
+  const { findSheetInsertRowIndex } = await import("@/lib/server/google-sheets");
+  const now = new Date("2026-06-01T03:00:00.000Z");
+  const sheetRow = ({
+    date = "",
+    name = "",
+    phone = "",
+    pcAmount = "",
+  }: {
+    date?: string;
+    name?: string;
+    phone?: string;
+    pcAmount?: string;
+  } = {}) => {
+    const row = Array.from({ length: 18 }, () => "");
+    row[0] = date;
+    row[2] = name;
+    row[14] = phone;
+    row[16] = pcAmount;
+    return row;
+  };
+
+  assert.equal(
+    findSheetInsertRowIndex(
+      [sheetRow({ date: "6/1" }), sheetRow(), sheetRow({ date: "마감" })],
+      "pc",
+      now,
+    ),
+    1,
+  );
+  assert.equal(
+    findSheetInsertRowIndex(
+      [
+        sheetRow({ date: "6/1" }),
+        sheetRow({
+          name: "이미접수",
+          phone: "01012345678",
+          pcAmount: "500",
+        }),
+        sheetRow(),
+        sheetRow({ date: "6/2" }),
+      ],
+      "pc",
+      now,
+    ),
+    2,
+  );
+  assert.equal(
+    findSheetInsertRowIndex(
+      [
+        sheetRow({ date: "6/1" }),
+        sheetRow({
+          name: "이미접수",
+          phone: "01012345678",
+          pcAmount: "500",
+        }),
+        sheetRow({ date: "마감" }),
+      ],
+      "pc",
+      now,
+    ),
+    2,
+  );
+  assert.throws(
+    () => findSheetInsertRowIndex([sheetRow({ date: "5/31" })], "pc", now),
+    /6\/1 날짜 행을 찾을 수 없습니다/,
+  );
+});
