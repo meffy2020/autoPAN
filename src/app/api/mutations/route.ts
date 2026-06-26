@@ -44,7 +44,6 @@ import {
   MAX_DAILY_GAME_MINUTES,
 } from "@/lib/kiosk-policy";
 import type { ResourceType } from "@/lib/domain";
-import { withKioskSheetWriteLock } from "@/lib/server/kiosk-sheet-lock";
 
 export const dynamic = "force-dynamic";
 
@@ -58,10 +57,6 @@ function withSerializedKioskIntake<T>(task: () => Promise<T>) {
   const run = kioskIntakeQueue.then(task, task);
   kioskIntakeQueue = run.catch(() => undefined);
   return run;
-}
-
-function withLockedSerializedKioskIntake<T>(task: () => Promise<T>) {
-  return withKioskSheetWriteLock(() => withSerializedKioskIntake(task));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -151,7 +146,7 @@ export async function POST(request: Request) {
 
     switch (action) {
       case "enqueueVisit": {
-        result = await withLockedSerializedKioskIntake(async () => {
+        result = await withSerializedKioskIntake(async () => {
           const payload = enqueueVisitSchema.parse(body.payload);
           const snapshotBeforeMutation = getSnapshot();
           const pricingRule = snapshotBeforeMutation.pricingRules.find(
@@ -240,7 +235,7 @@ export async function POST(request: Request) {
         break;
       }
       case "registerSpaceVisit": {
-        result = await withLockedSerializedKioskIntake(async () => {
+        result = await withSerializedKioskIntake(async () => {
           const payload = registerSpaceVisitSchema.parse(body.payload);
           const snapshotBeforeMutation = getSnapshot();
           const member =
