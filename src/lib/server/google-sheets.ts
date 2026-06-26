@@ -373,7 +373,6 @@ function buildKioskSubmissionRow(
     isSpaceVisit ? spaceDetail : "",
     isSpaceVisit || isRentalGameVisit ? "" : amount,
     isRentalGameVisit ? amount : "",
-    "",
   ];
 }
 
@@ -398,14 +397,11 @@ function isWritableSubmissionRow(row: string[], resourceType: ResourceType) {
     return false;
   }
 
-  const protectedColumnIndexes = Array.from(
-    { length: 18 },
-    (_, index) => index + 1,
-  );
+  const intakeColumnIndexes = Array.from({ length: 17 }, (_, index) => index + 1);
   const hasSpaceMarkerOnly =
     resourceType === "space" &&
     normalizeSearch(cell(row, 15)) === "공간이용" &&
-    protectedColumnIndexes
+    intakeColumnIndexes
       .filter((index) => index !== 15)
       .every((index) => !cell(row, index));
 
@@ -413,7 +409,7 @@ function isWritableSubmissionRow(row: string[], resourceType: ResourceType) {
     return true;
   }
 
-  return protectedColumnIndexes.every((index) => !cell(row, index));
+  return intakeColumnIndexes.every((index) => !cell(row, index));
 }
 
 export function findSheetInsertRowIndex(
@@ -430,14 +426,11 @@ export function findSheetInsertRowIndex(
     throw new Error(`${todayLabel} 날짜 행을 찾을 수 없습니다.`);
   }
 
-  let segmentEndIndex = rows.length;
-
   for (let index = todayRowIndex + 1; index < rows.length; index += 1) {
     const row = rows[index] ?? [];
     const firstCell = cell(row, 0);
 
     if (firstCell.startsWith("마감") || isSheetDateLabel(firstCell)) {
-      segmentEndIndex = index;
       break;
     }
 
@@ -446,44 +439,9 @@ export function findSheetInsertRowIndex(
     }
   }
 
-  return segmentEndIndex;
-}
-
-function toUserEnteredCell(value: string | number) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return {
-      userEnteredValue: {
-        numberValue: value,
-      },
-    };
-  }
-
-  return {
-    userEnteredValue: {
-      stringValue: String(value ?? ""),
-    },
-  };
-}
-
-async function getSheetId(
-  sheets: ReturnType<typeof google.sheets>,
-  spreadsheetId: string,
-  tabName: string,
-) {
-  const metadata = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: "sheets(properties(sheetId,title))",
-  });
-  const sheet = metadata.data.sheets?.find(
-    (item) => item.properties?.title === tabName,
+  throw new Error(
+    `${todayLabel} 구간에 입력 가능한 빈 행이 없습니다. 공식이 들어간 빈 행을 먼저 추가해 주세요.`,
   );
-  const sheetId = sheet?.properties?.sheetId;
-
-  if (sheetId === null || sheetId === undefined) {
-    throw new Error(`${tabName} 탭을 찾을 수 없습니다.`);
-  }
-
-  return sheetId;
 }
 
 function parseSheetAmount(value?: string) {
@@ -970,15 +928,12 @@ export async function appendKioskSubmissionToSheet(
   const sheets = google.sheets({ version: "v4", auth });
   const tabName = getTabName(submission.resourceType);
   const row = buildKioskSubmissionRow(submission, { date, time });
-  const [sheetId, valuesResponse] = await Promise.all([
-    getSheetId(sheets, config.spreadsheetId, tabName),
-    sheets.spreadsheets.values.get({
-      spreadsheetId: config.spreadsheetId,
-      range: getSheetRange(tabName, "A:T"),
-    }),
-  ]);
+  const valuesResponse = await sheets.spreadsheets.values.get({
+    spreadsheetId: config.spreadsheetId,
+    range: getSheetRange(tabName, "A:T"),
+  });
   const rows = (valuesResponse.data.values ?? []) as string[][];
-  const insertRowIndex = findSheetInsertRowIndex(
+  const writeRowIndex = findSheetInsertRowIndex(
     rows,
     submission.resourceType,
     now,
@@ -986,49 +941,24 @@ export async function appendKioskSubmissionToSheet(
 
   console.info("Google Sheets kiosk write target.", {
     tabName,
-    row: insertRowIndex + 1,
+    row: writeRowIndex + 1,
     name: submission.member.name,
     phone: maskPhoneForLog(submission.member.guardianPhone),
     resourceType: submission.resourceType,
   });
 
-  await sheets.spreadsheets.batchUpdate({
+  await sheets.spreadsheets.values.update({
     spreadsheetId: config.spreadsheetId,
+    range: getSheetRange(tabName, `B${writeRowIndex + 1}:R${writeRowIndex + 1}`),
+    valueInputOption: "USER_ENTERED",
     requestBody: {
-      requests: [
-        {
-          insertDimension: {
-            range: {
-              sheetId,
-              dimension: "ROWS",
-              startIndex: insertRowIndex,
-              endIndex: insertRowIndex + 1,
-            },
-            inheritFromBefore: insertRowIndex > 0,
-          },
-        },
-        {
-          updateCells: {
-            start: {
-              sheetId,
-              rowIndex: insertRowIndex,
-              columnIndex: 1,
-            },
-            rows: [
-              {
-                values: row.map(toUserEnteredCell),
-              },
-            ],
-            fields: "userEnteredValue",
-          },
-        },
-      ],
+      values: [row],
     },
   });
 
   return {
     tabName,
-    rowNumber: insertRowIndex + 1,
+    rowNumber: writeRowIndex + 1,
     resourceType: submission.resourceType,
   };
 }
