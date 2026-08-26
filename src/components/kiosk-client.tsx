@@ -5,18 +5,21 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
   ArrowLeft,
+  Check,
   Gamepad2,
   Monitor,
   Search,
   Users,
 } from "lucide-react";
 
-import { StatusPill } from "@/components/ui-primitives";
 import {
-  formatDailyGameLimitMessage,
-  getDailyGameLimitViolation,
   isElementaryGradeOneOrOlderBirthYear,
 } from "@/lib/kiosk-policy";
+import {
+  getKioskBackTarget,
+  isKioskIdentityReady,
+  type KioskFlowStep,
+} from "@/lib/kiosk-flow";
 import { useLiveSnapshot } from "@/hooks/use-live-snapshot";
 import { getJson, postMutation } from "@/lib/client-api";
 import {
@@ -28,12 +31,6 @@ import { sortPricingRules, getResourceSummary } from "@/lib/selectors";
 import type { SnapshotEnvelope } from "@/lib/snapshot";
 import { formatMinutes } from "@/lib/utils";
 
-type FlowStep =
-  | "entry"
-  | "pricing"
-  | "existing-member"
-  | "new-member"
-  | "consent";
 type KioskResourceChoice = ResourceType;
 type CompletionState = {
   kind: "paid" | "space";
@@ -191,6 +188,12 @@ function maskPhone(value: string) {
   return value;
 }
 
+function getNewMemberNamePrefill(query: string) {
+  const trimmed = query.trim();
+
+  return /\d/.test(trimmed) ? "" : trimmed;
+}
+
 function getCompletionSpeechMessage(
   memberName: string,
   choice: KioskResourceChoice,
@@ -247,24 +250,33 @@ function MemberButton({
     <button
       type="button"
       onClick={onSelect}
-      className={`w-full rounded-[18px] border px-5 py-4 text-left transition ${
+      aria-pressed={isSelected}
+      className={`grid min-h-[88px] w-full grid-cols-[minmax(0,1fr)_112px] items-center gap-4 rounded-[18px] border px-4 py-3 text-left transition sm:grid-cols-[minmax(0,1fr)_144px] sm:px-5 ${
         isSelected
-          ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)]"
+          ? "border-2 border-[color:var(--accent)] bg-[color:var(--accent-soft)]"
           : "border-[color:var(--line)] bg-[color:var(--surface-strong)] hover:bg-[color:var(--surface)]"
       }`}
     >
-      <div className="text-[16px] font-semibold text-[color:var(--foreground)]">
-        {name}
+      <div className="min-w-0">
+        <div className="text-[18px] font-bold text-[color:var(--foreground)]">
+          {name}
+        </div>
+        <div className="mt-1 text-[13px] leading-5 text-[color:var(--muted)]">
+          {formatMemberAgeLabel(gradeOrAge)} · 보호자 연락처{" "}
+          {maskPhone(guardianPhone)}
+        </div>
       </div>
-      <div className="mt-1 text-[13px] text-[color:var(--muted)]">
-        {formatMemberAgeLabel(gradeOrAge)} · 보호자 연락처{" "}
-        {maskPhone(guardianPhone)}
-      </div>
-      <div className="mt-3">
-        <StatusPill tone={isSelected ? "good" : "neutral"}>
-          {isSelected ? "선택 완료" : "선택"}
-        </StatusPill>
-      </div>
+      <span
+        aria-hidden="true"
+        className={`inline-flex min-h-14 w-full items-center justify-center gap-1.5 rounded-[14px] px-3 text-[16px] font-black ${
+          isSelected
+            ? "bg-[color:var(--success)] text-white"
+            : "bg-[color:var(--accent)] text-white"
+        }`}
+      >
+        {isSelected ? <Check className="size-5" strokeWidth={3} /> : null}
+        {isSelected ? "선택됨" : "선택하기"}
+      </span>
     </button>
   );
 }
@@ -364,7 +376,7 @@ function TimeButton({
 export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const { snapshot, refresh } = useLiveSnapshot(initial, 5000);
   const [tab, setTab] = useState<"existing" | "new" | null>(null);
-  const [step, setStep] = useState<FlowStep>("entry");
+  const [step, setStep] = useState<KioskFlowStep>("entry");
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [sheetMembers, setSheetMembers] = useState<SheetMember[]>([]);
   const [isMemberSearchLoading, setIsMemberSearchLoading] = useState(false);
@@ -393,13 +405,14 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultsRef = useRef<HTMLDivElement>(null);
   const memberSearchRequestSeqRef = useRef(0);
+  const submitInFlightRef = useRef(false);
 
   const visibleMembers = sheetMembers;
   const selectedMember = sheetMembers.find(
     (member) => member.id === selectedMemberId,
   );
   const showNewMemberRegistrationChoice =
-    hasSearchedMembers && !isMemberSearchLoading && !selectedMember;
+    hasSearchedMembers && !isMemberSearchLoading;
   const selectedResourceType =
     resourceChoice && resourceChoice !== "space" ? resourceChoice : null;
   const pricingRules = selectedResourceType
@@ -417,18 +430,17 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     formState.birthMonth,
   );
 
-  const identityReady =
-    tab === "existing"
-      ? Boolean(selectedMember)
-      : tab === "new"
-        ? Boolean(
-            formState.name &&
-            formState.schoolName &&
-            birthDateValue &&
-            formState.gender &&
-            formState.guardianPhone,
-          )
-        : false;
+  const identityReady = isKioskIdentityReady({
+    identityMode: tab,
+    hasSelectedMember: Boolean(selectedMember),
+    hasCompleteNewMemberForm: Boolean(
+      formState.name &&
+        formState.schoolName &&
+        birthDateValue &&
+        formState.gender &&
+        formState.guardianPhone,
+    ),
+  });
   const canSubmit = Boolean(
     privacyAgreed &&
     identityReady &&
@@ -514,10 +526,12 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   }, []);
 
   const resetFlow = useCallback(() => {
+    memberSearchRequestSeqRef.current += 1;
     setStep("entry");
     setTab(null);
     setSelectedMemberId("");
     setSheetMembers([]);
+    setIsMemberSearchLoading(false);
     setQuery("");
     setHasSearchedMembers(false);
     setResourceChoice(null);
@@ -533,9 +547,9 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
   const searchSheetMembers = async () => {
     const trimmedQuery = query.trim();
-    searchInputRef.current?.blur();
 
     if (!trimmedQuery) {
+      searchInputRef.current?.focus({ preventScroll: true });
       setNotice("이름 또는 연락처를 입력한 뒤 검색해 주세요.");
       speakKioskMessage(
         "이름이나 보호자 연락처를 입력하고 검색해 주세요.",
@@ -547,6 +561,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       return;
     }
 
+    searchInputRef.current?.blur();
     setIsMemberSearchLoading(true);
     setNotice("");
     setSelectedMemberId("");
@@ -622,33 +637,50 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   };
 
   const goBack = () => {
+    if (isPending || submitInFlightRef.current) {
+      return;
+    }
+
     setNotice("");
 
-    if (step === "existing-member") {
-      setStep(selectedResourceType ? "pricing" : "entry");
+    const target = getKioskBackTarget({
+      step,
+      identityMode: tab,
+      hasSelectedResourceType: Boolean(selectedResourceType),
+    });
+
+    if (!target) {
       return;
+    }
+
+    if (step === "existing-member") {
+      memberSearchRequestSeqRef.current += 1;
+      setIsMemberSearchLoading(false);
     }
 
     if (step === "new-member") {
-      setStep("existing-member");
-      return;
+      setAttemptedNewMemberSubmit(false);
+      setPrivacyAgreed(false);
+      setPhoneHint("");
+      setBlockingDialog(null);
     }
 
-    if (step === "consent") {
-      setStep(tab === "existing" ? "existing-member" : "new-member");
-      return;
-    }
-
-    if (step === "pricing") {
-      setStep("entry");
-      return;
-    }
+    setTab(target.identityMode);
+    setStep(target.step);
   };
 
   useEffect(() => {
-    const resetInactivityTimer = () => {
+    const clearInactivityTimer = () => {
       if (inactivityTimerRef.current) {
         clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = null;
+      }
+    };
+    const resetInactivityTimer = () => {
+      clearInactivityTimer();
+
+      if (isPending || submitInFlightRef.current || completion) {
+        return;
       }
 
       inactivityTimerRef.current = setTimeout(() => {
@@ -670,19 +702,22 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     });
 
     return () => {
-      if (inactivityTimerRef.current) {
-        clearTimeout(inactivityTimerRef.current);
-      }
-
-      if (completionTimerRef.current) {
-        clearTimeout(completionTimerRef.current);
-      }
+      clearInactivityTimer();
 
       eventTypes.forEach((eventName) => {
         window.removeEventListener(eventName, resetInactivityTimer);
       });
     };
-  }, [resetFlow]);
+  }, [completion, isPending, resetFlow]);
+
+  useEffect(
+    () => () => {
+      if (completionTimerRef.current) {
+        clearTimeout(completionTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const loadVoices = () => {
@@ -847,6 +882,10 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   }, [refresh, resetFlow]);
 
   const submitVisit = () => {
+    if (submitInFlightRef.current) {
+      return;
+    }
+
     prepareSpeechSynthesis();
     prepareGeneratedTtsPlayback();
 
@@ -884,38 +923,16 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       return;
     }
 
-    if (selectedResourceType) {
-      const selectedRule = pricingRules.find(
-        (rule) => rule.id === effectivePricingRuleId,
-      );
-      const limitViolation = selectedRule
-        ? getDailyGameLimitViolation({
-            state: snapshot,
-            identity: {
-              memberId: selectedMember?.id,
-              member: identityPayload.member,
-            },
-            selectedMinutes: selectedRule.minutes,
-          })
-        : null;
-
-      if (limitViolation) {
-        showBlockingDialog(
-          "오늘 이용 시간이 부족해요",
-          formatDailyGameLimitMessage(limitViolation.remainingMinutes),
-          limitViolation.remainingMinutes <= 0
-            ? "gameLimitFull"
-            : "gameLimitNotEnough",
-        );
-        return;
-      }
-    }
-
     const completionSpeech = getCompletionSpeechMessage(
       identityPayload.member.name,
       resourceChoice,
     );
 
+    submitInFlightRef.current = true;
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
     startTransition(async () => {
       try {
         if (resourceChoice === "space") {
@@ -952,6 +969,8 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           message,
           getBlockingAudioCue(message),
         );
+      } finally {
+        submitInFlightRef.current = false;
       }
     });
   };
@@ -1036,15 +1055,13 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   };
 
   const startNewMemberRegistration = () => {
-    if (selectedMember) {
-      setNotice("선택한 정보로 다음을 눌러 주세요.");
-      return;
-    }
-
     setTab("new");
     setSelectedMemberId("");
     setSheetMembers([]);
-    setQuery("");
+    setFormState({
+      ...DEFAULT_FORM,
+      name: getNewMemberNamePrefill(query),
+    });
     setHasSearchedMembers(false);
     setAttemptedNewMemberSubmit(false);
     setNotice("");
@@ -1094,7 +1111,8 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             <button
               type="button"
               onClick={goBack}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-[13px] font-semibold text-[color:var(--foreground)] shadow-sm"
+              disabled={isPending}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--line)] bg-white px-3 py-2 text-[13px] font-semibold text-[color:var(--foreground)] shadow-sm disabled:cursor-not-allowed disabled:opacity-45"
             >
               <ArrowLeft className="size-4" />
               뒤로
@@ -1234,8 +1252,10 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
           <input
             ref={searchInputRef}
             type="search"
+            autoFocus
             enterKeyHint="search"
             autoComplete="off"
+            spellCheck={false}
             value={query}
             onChange={(event) => {
               memberSearchRequestSeqRef.current += 1;
@@ -1260,7 +1280,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
             onClick={() => void searchSheetMembers()}
             disabled={isMemberSearchLoading}
             aria-busy={isMemberSearchLoading}
-            className="shrink-0 rounded-full bg-[color:var(--accent)] px-5 py-2.5 text-[14px] font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex min-h-12 min-w-20 shrink-0 items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-3 text-[15px] font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-45"
           >
             검색
           </button>
@@ -1282,31 +1302,32 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
               }}
             />
           ))}
-          {showNewMemberRegistrationChoice ? (
-            <div className="rounded-[18px] border border-dashed border-[color:var(--line)] bg-[color:var(--surface)] p-6 text-center text-[color:var(--muted)]">
-              <p className="text-[16px] font-semibold">
-                {visibleMembers.length === 0
-                  ? "이름이 안 보여요."
-                  : "내 정보가 없으면 새로 등록해요."}
-              </p>
-              <button
-                type="button"
-                onClick={startNewMemberRegistration}
-                className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-3 text-[15px] font-bold text-white"
-              >
-                찾는 정보가 없어요
-              </button>
-            </div>
-          ) : null}
         </div>
-        <button
-          type="button"
-          onClick={goToConsentStep}
-          disabled={isPending}
-          className="mt-6 inline-flex w-full shrink-0 items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-4 text-[15px] font-semibold text-white transition hover:bg-[color:var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-45"
+        <div
+          className={`mt-4 grid shrink-0 gap-3 ${
+            showNewMemberRegistrationChoice
+              ? "grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"
+              : "grid-cols-1"
+          }`}
         >
-          다음
-        </button>
+          {showNewMemberRegistrationChoice ? (
+            <button
+              type="button"
+              onClick={startNewMemberRegistration}
+              className="inline-flex min-h-16 items-center justify-center rounded-full border border-[color:var(--line)] bg-white px-4 py-3 text-[16px] font-bold text-[color:var(--foreground)] transition hover:bg-[color:var(--surface)]"
+            >
+              새로 등록
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={goToConsentStep}
+            disabled={isPending || !selectedMember}
+            className="inline-flex min-h-16 w-full items-center justify-center rounded-full bg-[color:var(--accent)] px-5 py-3 text-[17px] font-black text-white transition hover:bg-[color:var(--accent-strong)] disabled:cursor-not-allowed disabled:bg-[color:var(--surface-soft)] disabled:text-[color:var(--muted)] disabled:opacity-100"
+          >
+            {selectedMember ? "선택 완료 · 다음" : "먼저 선택해 주세요"}
+          </button>
+        </div>
       </div>
     </section>
   );

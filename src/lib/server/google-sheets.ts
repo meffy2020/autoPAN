@@ -3,6 +3,14 @@ import "server-only";
 import { google } from "googleapis";
 
 import type { Member, PricingRule, ResourceType } from "@/lib/domain";
+import {
+  formatDailyGameLimitMessage,
+  isGameResourceType,
+} from "@/lib/kiosk-policy";
+import {
+  getKioskRedis,
+  withKioskRedisLock,
+} from "@/lib/server/kiosk-redis";
 import type { MemberInput } from "@/lib/server/state";
 
 export type KioskSheetMetadata = {
@@ -18,11 +26,38 @@ type KioskSheetSubmission = {
   resourceType: ResourceType;
   pricingRule?: Pick<PricingRule, "amount" | "label" | "minutes">;
 };
+type KioskSubmissionSheetCell = string | number | null;
+type KioskSubmissionWriteRequest = {
+  tabName: string;
+  todayLabel: string;
+  resourceType: ResourceType;
+  row: KioskSubmissionSheetCell[];
+  gameLimit?: {
+    memberName: string;
+    guardianPhone: string;
+    requestedMinutes: number;
+    pricingRules: Array<{
+      resourceType: (typeof GAME_SHEET_RESOURCE_TYPES)[number];
+      amount: number;
+      minutes: number;
+    }>;
+  };
+};
 
 export type KioskSheetWriteTarget = {
   tabName: string;
   rowNumber: number;
   resourceType: ResourceType;
+};
+
+type KioskSheetLockTiming = {
+  lockWaitMs?: number;
+  policyReadMs?: number;
+  gameSegmentCursorHits?: number;
+  scanMs?: number;
+  writeMs?: number;
+  totalMs?: number;
+  cursorHit?: number;
 };
 
 export type KioskSheetMember = {
@@ -121,6 +156,50 @@ function getOperationLogTabName() {
     process.env.GOOGLE_SHEETS_OPERATION_LOG_TAB_NAME?.trim() ||
     DEFAULT_OPERATION_LOG_TAB_NAME
   );
+}
+
+function getKioskLockConfig() {
+  const url = process.env.GOOGLE_SHEETS_KIOSK_LOCK_URL?.trim();
+
+  if (!url) {
+    return null;
+  }
+
+  const secret = process.env.GOOGLE_SHEETS_KIOSK_LOCK_SECRET?.trim();
+
+  if (!secret) {
+    throw new Error("GOOGLE_SHEETS_KIOSK_LOCK_SECRET is required.");
+  }
+
+  return { url, secret };
+}
+
+function normalizeKioskSheetLockTiming(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const input = value as Record<string, unknown>;
+  const readDuration = (key: keyof KioskSheetLockTiming) => {
+    const duration = Number(input[key]);
+
+    return Number.isFinite(duration) && duration >= 0
+      ? Math.round(duration)
+      : undefined;
+  };
+  const timing: KioskSheetLockTiming = {
+    lockWaitMs: readDuration("lockWaitMs"),
+    policyReadMs: readDuration("policyReadMs"),
+    gameSegmentCursorHits: readDuration("gameSegmentCursorHits"),
+    scanMs: readDuration("scanMs"),
+    writeMs: readDuration("writeMs"),
+    totalMs: readDuration("totalMs"),
+    cursorHit: readDuration("cursorHit"),
+  };
+
+  return Object.values(timing).some((duration) => duration !== undefined)
+    ? timing
+    : undefined;
 }
 
 const GAME_SHEET_RESOURCE_TYPES = [
@@ -321,7 +400,10 @@ function formatBirthForSheet(value?: string) {
 }
 
 function buildBirthDateColumns(submission: KioskSheetSubmission) {
-  const values = Array.from({ length: 10 }, () => "");
+  const values: KioskSubmissionSheetCell[] = Array.from(
+    { length: 10 },
+    () => null,
+  );
   const birthValue =
     submission.metadata?.birthDate ?? submission.member.gradeOrAge;
   const birthYear = parseBirthYear(birthValue);
@@ -353,7 +435,13 @@ function buildBirthDateColumns(submission: KioskSheetSubmission) {
   return values;
 }
 
-function buildKioskSubmissionRow(
+function skipBlankCell(value?: string) {
+  const trimmed = value?.trim() ?? "";
+
+  return trimmed || null;
+}
+
+export function buildKioskSubmissionRow(
   submission: KioskSheetSubmission,
   dateParts: ReturnType<typeof formatDateParts>,
 ) {
@@ -367,12 +455,12 @@ function buildKioskSubmissionRow(
   return [
     dateParts.time,
     submission.member.name,
-    submission.metadata?.schoolName ?? "",
+    skipBlankCell(submission.metadata?.schoolName),
     ...buildBirthDateColumns(submission),
     submission.member.guardianPhone,
-    isSpaceVisit ? spaceDetail : "",
-    isSpaceVisit || isRentalGameVisit ? "" : amount,
-    isRentalGameVisit ? amount : "",
+    isSpaceVisit ? spaceDetail : null,
+    isSpaceVisit || isRentalGameVisit ? null : amount,
+    isRentalGameVisit ? amount : null,
   ];
 }
 
@@ -386,6 +474,50 @@ function getTodaySheetLabel(now = new Date()) {
     parts.find((part) => part.type === type)?.value ?? "";
 
   return `${Number(value("month"))}/${Number(value("day"))}`;
+}
+
+export function buildKioskSubmissionWriteRequest(
+  submission: KioskSheetSubmission,
+  now = new Date(),
+  pricingRules: PricingRule[] = [],
+): KioskSubmissionWriteRequest {
+  const { date, time } = formatDateParts(now);
+  const gameLimitPricingRules = new Map<
+    string,
+    {
+      resourceType: (typeof GAME_SHEET_RESOURCE_TYPES)[number];
+      amount: number;
+      minutes: number;
+    }
+  >();
+
+  pricingRules.forEach((rule) => {
+    if (!isGameResourceType(rule.resourceType) || rule.isExtension) {
+      return;
+    }
+
+    gameLimitPricingRules.set(`${rule.resourceType}:${rule.amount}`, {
+      resourceType: rule.resourceType,
+      amount: rule.amount,
+      minutes: rule.minutes,
+    });
+  });
+  const gameLimit = isGameResourceType(submission.resourceType)
+    ? {
+        memberName: submission.member.name,
+        guardianPhone: submission.member.guardianPhone,
+        requestedMinutes: submission.pricingRule?.minutes ?? 0,
+        pricingRules: Array.from(gameLimitPricingRules.values()),
+      }
+    : undefined;
+
+  return {
+    tabName: getTabName(submission.resourceType),
+    todayLabel: getTodaySheetLabel(now),
+    resourceType: submission.resourceType,
+    row: buildKioskSubmissionRow(submission, { date, time }),
+    gameLimit,
+  };
 }
 
 function isSheetDateLabel(value: string) {
@@ -424,6 +556,10 @@ export function findSheetInsertRowIndex(
 
   if (todayRowIndex < 0) {
     throw new Error(`${todayLabel} 날짜 행을 찾을 수 없습니다.`);
+  }
+
+  if (isWritableSubmissionRow(rows[todayRowIndex] ?? [], resourceType)) {
+    return todayRowIndex;
   }
 
   for (let index = todayRowIndex + 1; index < rows.length; index += 1) {
@@ -482,30 +618,80 @@ function getAmountColumnIndex(resourceType: ResourceType) {
     : SHEET_RENTAL_AMOUNT_COLUMN_INDEX;
 }
 
-function getTodaySegmentRows(rows: string[][], now = new Date()) {
+export function findTodaySheetSegmentBounds(
+  dateRows: string[][],
+  now = new Date(),
+) {
   const todayLabel = getTodaySheetLabel(now);
-  const todayRowIndex = rows.findLastIndex(
+  const todayRowIndex = dateRows.findLastIndex(
     (row) => cell(row, 0) === todayLabel,
   );
 
   if (todayRowIndex < 0) {
+    return null;
+  }
+
+  let segmentEndIndex = dateRows.length;
+  let isOpenEnded = true;
+
+  for (let index = todayRowIndex + 1; index < dateRows.length; index += 1) {
+    const firstCell = cell(dateRows[index] ?? [], 0);
+
+    if (firstCell.startsWith("마감") || isSheetDateLabel(firstCell)) {
+      segmentEndIndex = index;
+      isOpenEnded = false;
+      break;
+    }
+  }
+
+  return {
+    firstRowNumber: todayRowIndex + 1,
+    lastRowNumber: segmentEndIndex,
+    isOpenEnded,
+  };
+}
+
+export function getTodaySheetSegmentRangeTarget(
+  resourceType: (typeof GAME_SHEET_RESOURCE_TYPES)[number],
+  dateRows: string[][],
+  now = new Date(),
+) {
+  const bounds = findTodaySheetSegmentBounds(dateRows, now);
+
+  if (!bounds) {
+    return null;
+  }
+
+  const endRow = bounds.isOpenEnded ? "" : String(bounds.lastRowNumber);
+
+  return {
+    resourceType,
+    firstRowNumber: bounds.firstRowNumber,
+    range: getSheetRange(
+      getTabName(resourceType),
+      `A${bounds.firstRowNumber}:T${endRow}`,
+    ),
+  };
+}
+
+function getTodaySegmentRows(
+  rows: string[][],
+  now = new Date(),
+  firstRowNumber = 1,
+) {
+  const bounds = findTodaySheetSegmentBounds(rows, now);
+
+  if (!bounds) {
     return [];
   }
 
   const segmentRows: Array<{ row: string[]; rowNumber: number }> = [];
+  const startIndex = bounds.firstRowNumber - 1;
 
-  for (let index = todayRowIndex; index < rows.length; index += 1) {
+  for (let index = startIndex; index < bounds.lastRowNumber; index += 1) {
     const row = rows[index] ?? [];
-    const firstCell = cell(row, 0);
 
-    if (
-      index > todayRowIndex &&
-      (firstCell.startsWith("마감") || isSheetDateLabel(firstCell))
-    ) {
-      break;
-    }
-
-    segmentRows.push({ row, rowNumber: index + 1 });
+    segmentRows.push({ row, rowNumber: firstRowNumber + index });
   }
 
   return segmentRows;
@@ -513,12 +699,16 @@ function getTodaySegmentRows(rows: string[][], now = new Date()) {
 
 export function getDailyGameSheetUsageFromRows({
   rowsByResourceType,
+  firstRowNumbersByResourceType,
   member,
   pricingRules,
   now = new Date(),
 }: {
   rowsByResourceType: Partial<
     Record<(typeof GAME_SHEET_RESOURCE_TYPES)[number], string[][]>
+  >;
+  firstRowNumbersByResourceType?: Partial<
+    Record<(typeof GAME_SHEET_RESOURCE_TYPES)[number], number>
   >;
   member: Pick<Member, "name" | "guardianPhone">;
   pricingRules: PricingRule[];
@@ -531,7 +721,11 @@ export function getDailyGameSheetUsageFromRows({
   GAME_SHEET_RESOURCE_TYPES.forEach((resourceType) => {
     const rows = rowsByResourceType[resourceType] ?? [];
 
-    getTodaySegmentRows(rows, now).forEach(({ row, rowNumber }) => {
+    getTodaySegmentRows(
+      rows,
+      now,
+      firstRowNumbersByResourceType?.[resourceType] ?? 1,
+    ).forEach(({ row, rowNumber }) => {
       if (
         normalizeSearch(cell(row, SHEET_NAME_COLUMN_INDEX)) !== targetName ||
         normalizePhone(cell(row, SHEET_PHONE_COLUMN_INDEX)) !== targetPhone
@@ -908,58 +1102,244 @@ export async function searchKioskMembersFromSheet(query = "", limit = 8) {
 
 export async function appendKioskSubmissionToSheet(
   submission: KioskSheetSubmission,
+  options: { pricingRules?: PricingRule[] } = {},
 ): Promise<KioskSheetWriteTarget | null> {
-  const config = getSheetsConfig();
+  const now = new Date();
+  const writeRequest = buildKioskSubmissionWriteRequest(
+    submission,
+    now,
+    options.pricingRules,
+  );
 
-  if (!config) {
+  if (
+    isGameResourceType(submission.resourceType) &&
+    (!writeRequest.gameLimit ||
+      writeRequest.gameLimit.requestedMinutes <= 0 ||
+      writeRequest.gameLimit.pricingRules.length === 0)
+  ) {
+    throw new Error("게임 이용시간 정책 정보를 확인하지 못했습니다.");
+  }
+
+  const redisTarget = await appendKioskSubmissionThroughRedis(writeRequest);
+
+  if (redisTarget) {
+    return redisTarget;
+  }
+
+  const lockedTarget = await appendKioskSubmissionThroughLock(writeRequest);
+
+  if (lockedTarget) {
+    return lockedTarget;
+  }
+
+  const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
+
+  if (!spreadsheetId) {
     console.warn(
-      "Google Sheets env vars are missing. Skipping kiosk sheet append.",
+      "GOOGLE_SHEETS_SPREADSHEET_ID is missing. Skipping kiosk sheet append.",
     );
     return null;
   }
 
-  const now = new Date();
-  const { date, time } = formatDateParts(now);
-  const auth = new google.auth.JWT({
-    email: config.clientEmail,
-    key: config.privateKey,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-  const sheets = google.sheets({ version: "v4", auth });
-  const tabName = getTabName(submission.resourceType);
-  const row = buildKioskSubmissionRow(submission, { date, time });
-  const valuesResponse = await sheets.spreadsheets.values.get({
-    spreadsheetId: config.spreadsheetId,
-    range: getSheetRange(tabName, "A:T"),
-  });
-  const rows = (valuesResponse.data.values ?? []) as string[][];
-  const writeRowIndex = findSheetInsertRowIndex(
-    rows,
-    submission.resourceType,
-    now,
+  throw new Error(
+    "안전한 접수를 위한 Google Sheets 잠금 설정이 필요합니다.",
   );
+}
 
-  console.info("Google Sheets kiosk write target.", {
-    tabName,
-    row: writeRowIndex + 1,
-    name: submission.member.name,
-    phone: maskPhoneForLog(submission.member.guardianPhone),
-    resourceType: submission.resourceType,
-  });
+async function appendKioskSubmissionThroughRedis(
+  writeRequest: KioskSubmissionWriteRequest,
+): Promise<KioskSheetWriteTarget | null> {
+  const redis = getKioskRedis();
+  const config = getSheetsConfig();
 
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: config.spreadsheetId,
-    range: getSheetRange(tabName, `B${writeRowIndex + 1}:R${writeRowIndex + 1}`),
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [row],
+  if (!redis || !config) {
+    return null;
+  }
+
+  const lockScope = isGameResourceType(writeRequest.resourceType)
+    ? "game"
+    : writeRequest.resourceType;
+
+  return withKioskRedisLock(
+    `autopan:kiosk:lock:${writeRequest.todayLabel}:${lockScope}`,
+    async () => {
+      const auth = new google.auth.JWT({
+        email: config.clientEmail,
+        key: config.privateKey,
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+      });
+      const sheets = google.sheets({ version: "v4", auth });
+
+      if (writeRequest.gameLimit) {
+        // Sheets remains the source of truth for game time because staff can
+        // correct a child's time directly in the sheet during the day.
+        const sheetUsage = await getDailyGameSheetUsage({
+          member: {
+            name: writeRequest.gameLimit.memberName,
+            guardianPhone: writeRequest.gameLimit.guardianPhone,
+          },
+          pricingRules: writeRequest.gameLimit.pricingRules as PricingRule[],
+        });
+        const usedMinutes = sheetUsage?.minutes ?? 0;
+
+        if (usedMinutes + writeRequest.gameLimit.requestedMinutes > 120) {
+          throw new Error(
+            formatDailyGameLimitMessage(Math.max(120 - usedMinutes, 0)),
+          );
+        }
+
+      }
+
+      const cursorKey = `autopan:kiosk:next-row:${writeRequest.todayLabel}:${writeRequest.resourceType}`;
+      const segmentStartKey = `autopan:kiosk:segment-start:${writeRequest.todayLabel}:${writeRequest.resourceType}`;
+      let rowNumber = await redis.get<number>(cursorKey);
+      let segmentStartRow = await redis.get<number>(segmentStartKey);
+
+      if (rowNumber === null || segmentStartRow === null) {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: config.spreadsheetId,
+          range: getSheetRange(writeRequest.tabName, "A:T"),
+        });
+        const rows = (response.data.values ?? []) as string[][];
+        const bounds = findTodaySheetSegmentBounds(rows);
+
+        if (!bounds) {
+          throw new Error(`${writeRequest.todayLabel} 날짜 행을 찾을 수 없습니다.`);
+        }
+
+        rowNumber =
+          findSheetInsertRowIndex(
+            rows,
+            writeRequest.resourceType,
+          ) + 1;
+        segmentStartRow = bounds.firstRowNumber;
+        await redis.set(cursorKey, rowNumber, { ex: 36 * 60 * 60 });
+        await redis.set(segmentStartKey, segmentStartRow, { ex: 36 * 60 * 60 });
+      }
+
+      // A staff member may delete a mistaken intake in the middle of today's
+      // block. Read only the known daily block (not the full sheet) so that
+      // the deleted row is reused before allocating a new one.
+      const segmentResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: config.spreadsheetId,
+        range: getSheetRange(
+          writeRequest.tabName,
+          `A${segmentStartRow}:R${rowNumber}`,
+        ),
+      });
+      const segmentRows = (segmentResponse.data.values ?? []) as string[][];
+      let reusableRowNumber: number | null = null;
+
+      for (let index = 0; index <= rowNumber - segmentStartRow; index += 1) {
+        const row = segmentRows[index] ?? [];
+        const firstCell = cell(row, 0);
+
+        if (
+          index > 0 &&
+          (firstCell.startsWith("마감") || isSheetDateLabel(firstCell))
+        ) {
+          break;
+        }
+
+        if (isWritableSubmissionRow(row, writeRequest.resourceType)) {
+          reusableRowNumber = segmentStartRow + index;
+          break;
+        }
+      }
+
+      if (reusableRowNumber === null) {
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: config.spreadsheetId,
+          range: getSheetRange(writeRequest.tabName, "A:T"),
+        });
+        rowNumber =
+          findSheetInsertRowIndex(
+            (response.data.values ?? []) as string[][],
+            writeRequest.resourceType,
+          ) + 1;
+        await redis.set(cursorKey, rowNumber, { ex: 36 * 60 * 60 });
+      } else {
+        rowNumber = reusableRowNumber;
+      }
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: config.spreadsheetId,
+        range: getSheetRange(writeRequest.tabName, `B${rowNumber}:R${rowNumber}`),
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [writeRequest.row] },
+      });
+
+      const nextRowNumber = Math.max(
+        (await redis.get<number>(cursorKey)) ?? rowNumber,
+        rowNumber + 1,
+      );
+      await redis.set(cursorKey, nextRowNumber, { ex: 36 * 60 * 60 });
+      console.info("Google Sheets Redis-reserved write target.", {
+        tabName: writeRequest.tabName,
+        row: rowNumber,
+        resourceType: writeRequest.resourceType,
+      });
+      return { tabName: writeRequest.tabName, rowNumber, resourceType: writeRequest.resourceType };
     },
+  );
+}
+
+async function appendKioskSubmissionThroughLock(
+  writeRequest: KioskSubmissionWriteRequest,
+): Promise<KioskSheetWriteTarget | null> {
+  const lockConfig = getKioskLockConfig();
+
+  if (!lockConfig) {
+    return null;
+  }
+
+  const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim();
+
+  if (!spreadsheetId) {
+    throw new Error("GOOGLE_SHEETS_SPREADSHEET_ID is required.");
+  }
+
+  // ponytail: one spreadsheet-wide lock; split by tab only if lock waits become visible.
+  const response = await fetch(lockConfig.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...writeRequest,
+      spreadsheetId,
+      secret: lockConfig.secret,
+    }),
+  });
+  const body = (await response.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    tabName?: string;
+    rowNumber?: number;
+    timing?: unknown;
+  };
+
+  if (!response.ok || !body.ok) {
+    throw new Error(body.error ?? "Google Sheets locked write failed.");
+  }
+
+  const rowNumber = Number(body.rowNumber);
+
+  if (!Number.isInteger(rowNumber) || rowNumber < 1) {
+    throw new Error("Google Sheets locked write returned an invalid row.");
+  }
+
+  console.info("Google Sheets kiosk locked write target.", {
+    tabName: body.tabName ?? writeRequest.tabName,
+    row: rowNumber,
+    resourceType: writeRequest.resourceType,
+    timing: normalizeKioskSheetLockTiming(body.timing),
   });
 
   return {
-    tabName,
-    rowNumber: writeRowIndex + 1,
-    resourceType: submission.resourceType,
+    tabName: body.tabName ?? writeRequest.tabName,
+    rowNumber,
+    resourceType: writeRequest.resourceType,
   };
 }
 
@@ -1026,22 +1406,49 @@ export async function getDailyGameSheetUsage({
     scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
   });
   const sheets = google.sheets({ version: "v4", auth });
-  const ranges = GAME_SHEET_RESOURCE_TYPES.map((resourceType) =>
-    getSheetRange(getTabName(resourceType), "A:T"),
-  );
-  const response = await sheets.spreadsheets.values.batchGet({
+  const dateColumnResponse = await sheets.spreadsheets.values.batchGet({
     spreadsheetId: config.spreadsheetId,
-    ranges,
+    ranges: GAME_SHEET_RESOURCE_TYPES.map((resourceType) =>
+      getSheetRange(getTabName(resourceType), "A:A"),
+    ),
   });
-  const rowsByResourceType = Object.fromEntries(
-    GAME_SHEET_RESOURCE_TYPES.map((resourceType, index) => [
-      resourceType,
-      (response.data.valueRanges?.[index]?.values ?? []) as string[][],
-    ]),
-  ) as Record<(typeof GAME_SHEET_RESOURCE_TYPES)[number], string[][]>;
+  const segmentTargets = GAME_SHEET_RESOURCE_TYPES.flatMap(
+    (resourceType, index) => {
+      const dateRows = (dateColumnResponse.data.valueRanges?.[index]?.values ??
+        []) as string[][];
+      const target = getTodaySheetSegmentRangeTarget(
+        resourceType,
+        dateRows,
+        now,
+      );
+
+      return target ? [target] : [];
+    },
+  );
+  const segmentResponse =
+    segmentTargets.length > 0
+      ? await sheets.spreadsheets.values.batchGet({
+          spreadsheetId: config.spreadsheetId,
+          ranges: segmentTargets.map((target) => target.range),
+        })
+      : null;
+  const rowsByResourceType: Partial<
+    Record<(typeof GAME_SHEET_RESOURCE_TYPES)[number], string[][]>
+  > = {};
+  const firstRowNumbersByResourceType: Partial<
+    Record<(typeof GAME_SHEET_RESOURCE_TYPES)[number], number>
+  > = {};
+
+  segmentTargets.forEach((target, index) => {
+    rowsByResourceType[target.resourceType] = (segmentResponse?.data.valueRanges?.[
+      index
+    ]?.values ?? []) as string[][];
+    firstRowNumbersByResourceType[target.resourceType] = target.firstRowNumber;
+  });
 
   return getDailyGameSheetUsageFromRows({
     rowsByResourceType,
+    firstRowNumbersByResourceType,
     member,
     pricingRules,
     now,

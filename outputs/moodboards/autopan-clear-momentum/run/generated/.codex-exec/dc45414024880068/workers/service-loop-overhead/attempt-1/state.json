@@ -1,0 +1,8 @@
+{
+  "id": "service-loop-overhead",
+  "status": "complete",
+  "attempt": 1,
+  "pid": 67631,
+  "startedAt": "2026-06-13T15:57:51.801863+00:00",
+  "lastHeartbeatAt": "2026-06-13T15:59:12.594092+00:00"
+}

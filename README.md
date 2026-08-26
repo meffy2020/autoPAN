@@ -80,9 +80,12 @@ GOOGLE_SHEETS_SPREADSHEET_ID=
 GOOGLE_SHEETS_CLIENT_EMAIL=
 GOOGLE_SHEETS_PRIVATE_KEY=
 GOOGLE_SHEETS_MEMBER_RANGE="'사용자DB'!A:Z"
+GOOGLE_SHEETS_KIOSK_LOCK_URL=
+GOOGLE_SHEETS_KIOSK_LOCK_SECRET=
 ```
 
 Google Sheets 서비스 계정 이메일은 대상 스프레드시트에 편집자로 공유되어 있어야 한다.
+운영 접수는 `scripts/google-sheets-kiosk-lock.gs`의 Apps Script 웹앱 잠금을 필수로 사용한다. Script Property `KIOSK_APPEND_SECRET`은 `GOOGLE_SHEETS_KIOSK_LOCK_SECRET`과 같은 값으로, `KIOSK_SPREADSHEET_ID`는 `GOOGLE_SHEETS_SPREADSHEET_ID`와 같은 값으로 설정한다. 탭 이름을 기본값과 다르게 쓰는 경우에는 Apps Script에도 `KIOSK_PC_TAB_NAME`, `KIOSK_NINTENDO_TAB_NAME`, `KIOSK_PLAYSTATION_TAB_NAME`, `KIOSK_FREE_TAB_NAME`을 동일하게 설정한다. 게임 3개 탭의 당일 이용시간 확인과 접수 기록은 이 웹앱의 한 잠금 안에서 처리된다.
 
 ## Development
 

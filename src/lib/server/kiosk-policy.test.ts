@@ -265,6 +265,48 @@ test("enqueueVisit allows exactly 120 minutes and rejects over-limit without sid
   assert.equal(afterMember?.gradeOrAge, existingMember.gradeOrAge);
 });
 
+test("enqueueVisit can skip local game limit after authoritative sheet check", () => {
+  resetDemoState();
+
+  const snapshot = getSnapshot();
+  const pc90 = snapshot.pricingRules.find(
+    (rule) =>
+      rule.resourceType === "pc" && rule.minutes === 90 && !rule.isExtension,
+  );
+  const pc30 = snapshot.pricingRules.find(
+    (rule) =>
+      rule.resourceType === "pc" && rule.minutes === 30 && !rule.isExtension,
+  );
+  const pc60 = snapshot.pricingRules.find(
+    (rule) =>
+      rule.resourceType === "pc" && rule.minutes === 60 && !rule.isExtension,
+  );
+
+  assert.ok(pc90);
+  assert.ok(pc30);
+  assert.ok(pc60);
+
+  const member = {
+    name: "시트기준테스트",
+    gradeOrAge: "2015",
+    guardianPhone: "01077776666",
+  };
+
+  enqueueVisit({ member, resourceType: "pc", pricingRuleId: pc90.id });
+  enqueueVisit({ member, resourceType: "pc", pricingRuleId: pc30.id });
+
+  const beforeBypass = getSnapshot();
+  enqueueVisit({
+    member,
+    resourceType: "pc",
+    pricingRuleId: pc60.id,
+    skipLocalDailyGameLimitCheck: true,
+  });
+  const afterBypass = getSnapshot();
+
+  assert.equal(afterBypass.visits.length, beforeBypass.visits.length + 1);
+});
+
 test("space visits remain allowed even after game-device limit is full", () => {
   resetDemoState();
 
@@ -379,7 +421,68 @@ test("daily game sheet usage reads only today's Korea-date segment and game tabs
   );
 });
 
-test("sheet insertion target stays inside today's segment without reusing the date row", async () => {
+test("daily game sheet lookup narrows each tab to the latest today segment", async () => {
+  const { findTodaySheetSegmentBounds, getTodaySheetSegmentRangeTarget } =
+    await import("@/lib/server/google-sheets");
+  const now = new Date("2026-06-01T03:00:00.000Z");
+
+  assert.deepEqual(
+    findTodaySheetSegmentBounds(
+      [
+        ["6/1"],
+        [""],
+        ["마감"],
+        ["6/1"],
+        [""],
+        [""],
+        ["6/2"],
+      ],
+      now,
+    ),
+    {
+      firstRowNumber: 4,
+      lastRowNumber: 6,
+      isOpenEnded: false,
+    },
+  );
+
+  assert.deepEqual(
+    getTodaySheetSegmentRangeTarget(
+      "pc",
+      [["6/1"], [""], [""]],
+      now,
+    ),
+    {
+      resourceType: "pc",
+      firstRowNumber: 1,
+      range: "'컴퓨터'!A1:T",
+    },
+  );
+});
+
+test("daily game sheet usage preserves absolute row numbers for narrowed ranges", async () => {
+  const { getDailyGameSheetUsageFromRows } =
+    await import("@/lib/server/google-sheets");
+  const now = new Date("2026-06-01T03:00:00.000Z");
+  const state = emptyPolicyState(now);
+  const row = Array.from({ length: 18 }, () => "");
+  row[0] = "6/1";
+  row[2] = "김테스트";
+  row[14] = "01012345678";
+  row[16] = "500";
+
+  const usage = getDailyGameSheetUsageFromRows({
+    rowsByResourceType: { pc: [row] },
+    firstRowNumbersByResourceType: { pc: 2_352 },
+    member: { name: "김테스트", guardianPhone: "01012345678" },
+    pricingRules: state.pricingRules,
+    now,
+  });
+
+  assert.equal(usage.rows[0]?.rowNumber, 2_352);
+});
+
+test("sheet insertion can reuse today's date row when intake cells are empty", async () => {
   const { findSheetInsertRowIndex } = await import("@/lib/server/google-sheets");
   const now = new Date("2026-06-01T03:00:00.000Z");
   const sheetRow = ({
@@ -404,22 +507,29 @@ test("sheet insertion target stays inside today's segment without reusing the da
     return row;
   };
 
+  for (const resourceType of ["pc", "nintendo", "playstation", "space"] as const) {
+    assert.equal(
+      findSheetInsertRowIndex(
+        [
+          sheetRow({ date: "6/1" }),
+          sheetRow({ helperFormula: "=ROW()" }),
+          sheetRow({ date: "마감" }),
+        ],
+        resourceType,
+        now,
+      ),
+      0,
+    );
+  }
   assert.equal(
     findSheetInsertRowIndex(
       [
-        sheetRow({ date: "6/1" }),
-        sheetRow({ helperFormula: "=ROW()" }),
-        sheetRow({ date: "마감" }),
-      ],
-      "pc",
-      now,
-    ),
-    1,
-  );
-  assert.equal(
-    findSheetInsertRowIndex(
-      [
-        sheetRow({ date: "6/1" }),
+        sheetRow({
+          date: "6/1",
+          name: "이미접수",
+          phone: "01012345678",
+          pcAmount: "500",
+        }),
         sheetRow({
           name: "이미접수",
           phone: "01012345678",
@@ -437,7 +547,12 @@ test("sheet insertion target stays inside today's segment without reusing the da
     () =>
       findSheetInsertRowIndex(
         [
-          sheetRow({ date: "6/1" }),
+          sheetRow({
+            date: "6/1",
+            name: "이미접수",
+            phone: "01012345678",
+            pcAmount: "500",
+          }),
           sheetRow({
             name: "이미접수",
             phone: "01012345678",
@@ -454,6 +569,96 @@ test("sheet insertion target stays inside today's segment without reusing the da
     () => findSheetInsertRowIndex([sheetRow({ date: "5/31" })], "pc", now),
     /6\/1 날짜 행을 찾을 수 없습니다/,
   );
+});
+
+test("kiosk submission row skips non-input cells instead of writing blank strings", async () => {
+  const { buildKioskSubmissionRow } = await import("@/lib/server/google-sheets");
+  const row = buildKioskSubmissionRow(
+    {
+      member: {
+        name: "김테스트",
+        gradeOrAge: "",
+        guardianPhone: "01012345678",
+      },
+      resourceType: "pc",
+      pricingRule: {
+        amount: 500,
+        label: "30분",
+        minutes: 30,
+      },
+    },
+    { date: "2026-06-01", time: "12:00" },
+  );
+
+  assert.equal(row.length, 17);
+  assert.equal(row.some((cell) => cell === ""), false);
+  assert.deepEqual(row, [
+    "12:00",
+    "김테스트",
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    "01012345678",
+    null,
+    500,
+    null,
+  ]);
+});
+
+test("locked kiosk write request carries the target label and 17 write cells", async () => {
+  const { buildKioskSubmissionWriteRequest } =
+    await import("@/lib/server/google-sheets");
+  const state = emptyPolicyState(new Date("2026-06-01T03:00:00.000Z"));
+  const request = buildKioskSubmissionWriteRequest(
+    {
+      member: {
+        name: "김테스트",
+        gradeOrAge: "2015",
+        guardianPhone: "01012345678",
+      },
+      resourceType: "pc",
+      pricingRule: {
+        amount: 500,
+        label: "30분",
+        minutes: 30,
+      },
+    },
+    new Date("2026-06-01T03:00:00.000Z"),
+    state.pricingRules,
+  );
+
+  assert.equal(request.tabName, "컴퓨터");
+  assert.equal(request.todayLabel, "6/1");
+  assert.equal(request.resourceType, "pc");
+  assert.equal(request.row.length, 17);
+  assert.equal(request.row[0], "12:00");
+  assert.deepEqual(request.gameLimit, {
+    memberName: "김테스트",
+    guardianPhone: "01012345678",
+    requestedMinutes: 30,
+    pricingRules: [
+      { resourceType: "pc", amount: 500, minutes: 30 },
+      { resourceType: "pc", amount: 1000, minutes: 60 },
+      { resourceType: "pc", amount: 1500, minutes: 90 },
+      { resourceType: "pc", amount: 2000, minutes: 120 },
+      { resourceType: "nintendo", amount: 500, minutes: 30 },
+      { resourceType: "nintendo", amount: 1000, minutes: 60 },
+      { resourceType: "nintendo", amount: 1500, minutes: 90 },
+      { resourceType: "nintendo", amount: 2000, minutes: 120 },
+      { resourceType: "playstation", amount: 500, minutes: 30 },
+      { resourceType: "playstation", amount: 1000, minutes: 60 },
+      { resourceType: "playstation", amount: 1500, minutes: 90 },
+      { resourceType: "playstation", amount: 2000, minutes: 120 },
+    ],
+  });
 });
 
 test("failure operation log rows keep troubleshooting details while masking phone values", async () => {

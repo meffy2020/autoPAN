@@ -58,6 +58,7 @@ export function enqueueVisit(input: {
   resourceType: ResourceType;
   pricingRuleId: string;
   note?: string;
+  skipLocalDailyGameLimitCheck?: boolean;
 }) {
   return withState((state, now) => {
     const pricingRule = getPricingRule(state, input.pricingRuleId);
@@ -76,7 +77,10 @@ export function enqueueVisit(input: {
       : undefined;
     const policyMemberId = memberId ?? matchedMember?.id;
 
-    if (isGameResourceType(input.resourceType)) {
+    if (
+      isGameResourceType(input.resourceType) &&
+      !input.skipLocalDailyGameLimitCheck
+    ) {
       const limitViolation = getDailyGameLimitViolation({
         state,
         identity: {

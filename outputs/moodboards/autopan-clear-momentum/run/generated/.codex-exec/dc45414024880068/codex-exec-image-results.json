@@ -1,0 +1,66 @@
+{
+  "status": "partial",
+  "total": 12,
+  "complete": 3,
+  "failed": 0,
+  "pending": 9,
+  "results": [
+    {
+      "id": "arrival-light-path",
+      "status": "pending"
+    },
+    {
+      "id": "tablet-touch-momentum",
+      "status": "pending"
+    },
+    {
+      "id": "member-search-glow",
+      "status": "pending"
+    },
+    {
+      "id": "counter-service-flow",
+      "status": "pending"
+    },
+    {
+      "id": "choice-cards-motion",
+      "status": "pending"
+    },
+    {
+      "id": "payment-next-step",
+      "status": "pending"
+    },
+    {
+      "id": "completion-green-glow",
+      "status": "complete",
+      "image_path": "/Users/ksj/Desktop/02_Work/Projects/autoPAN/outputs/moodboards/autopan-clear-momentum/run/generated/.codex-exec/dc45414024880068/de39d62600f0c75773b6ff22690a5de6.png",
+      "error": null,
+      "caveats": ""
+    },
+    {
+      "id": "guardian-friendly-flow",
+      "status": "pending"
+    },
+    {
+      "id": "queue-to-activity",
+      "status": "pending"
+    },
+    {
+      "id": "fixed-action-calm",
+      "status": "complete",
+      "image_path": "/Users/ksj/Desktop/02_Work/Projects/autoPAN/outputs/moodboards/autopan-clear-momentum/run/generated/.codex-exec/dc45414024880068/78950b77f66ce240b6b4387a5b3c950f.png",
+      "error": null,
+      "caveats": ""
+    },
+    {
+      "id": "warm-system-pulse",
+      "status": "pending"
+    },
+    {
+      "id": "service-loop-overhead",
+      "status": "complete",
+      "image_path": "/Users/ksj/Desktop/02_Work/Projects/autoPAN/outputs/moodboards/autopan-clear-momentum/run/generated/.codex-exec/dc45414024880068/df343aa2ac998932500f462906fb8901.png",
+      "error": null,
+      "caveats": ""
+    }
+  ]
+}

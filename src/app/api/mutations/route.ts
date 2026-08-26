@@ -34,29 +34,38 @@ import {
 import {
   appendKioskOperationLogSafely,
   appendKioskSubmissionToSheet,
-  getDailyGameSheetUsage,
   type KioskOperationLogEntry,
 } from "@/lib/server/google-sheets";
-import {
-  formatDailyGameLimitMessage,
-  getDailyGameLimitViolation,
-  isGameResourceType,
-  MAX_DAILY_GAME_MINUTES,
-} from "@/lib/kiosk-policy";
 import type { ResourceType } from "@/lib/domain";
 
 export const dynamic = "force-dynamic";
 
-let kioskIntakeQueue: Promise<unknown> = Promise.resolve();
+type KioskIntakeTiming = {
+  action: "enqueueVisit" | "registerSpaceVisit";
+  resourceType: ResourceType;
+  startedAt: number;
+  sheetWriteMs: number;
+  localCommitMs: number;
+};
 const KIOSK_LOGGED_MUTATION_ACTIONS = new Set([
   "enqueueVisit",
   "registerSpaceVisit",
 ]);
 
-function withSerializedKioskIntake<T>(task: () => Promise<T>) {
-  const run = kioskIntakeQueue.then(task, task);
-  kioskIntakeQueue = run.catch(() => undefined);
-  return run;
+function logKioskIntakeTiming(
+  timing: KioskIntakeTiming,
+  status: "success" | "failure",
+  requestId: string,
+) {
+  console.info("Kiosk intake timing.", {
+    action: timing.action,
+    status,
+    resourceType: timing.resourceType,
+    sheetWriteMs: timing.sheetWriteMs,
+    localCommitMs: timing.localCommitMs,
+    totalMs: Date.now() - timing.startedAt,
+    requestId,
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -114,6 +123,7 @@ export async function POST(request: Request) {
   let action = "unknown";
   let rawPayload: unknown;
   let operationLogContext: Partial<KioskOperationLogEntry> | null = null;
+  let intakeTiming: KioskIntakeTiming | null = null;
   const requestId = getRequestId(request);
 
   const writeFailureLog = async (message: string) => {
@@ -146,127 +156,127 @@ export async function POST(request: Request) {
 
     switch (action) {
       case "enqueueVisit": {
-        result = await withSerializedKioskIntake(async () => {
-          const payload = enqueueVisitSchema.parse(body.payload);
-          const snapshotBeforeMutation = getSnapshot();
-          const pricingRule = snapshotBeforeMutation.pricingRules.find(
-            (item) => item.id === payload.pricingRuleId,
+        const timing: KioskIntakeTiming = {
+          action: "enqueueVisit",
+          resourceType: "pc",
+          startedAt: Date.now(),
+          sheetWriteMs: 0,
+          localCommitMs: 0,
+        };
+        intakeTiming = timing;
+        const payload = enqueueVisitSchema.parse(body.payload);
+        timing.resourceType = payload.resourceType;
+        const snapshotBeforeMutation = getSnapshot();
+        const pricingRule = snapshotBeforeMutation.pricingRules.find(
+          (item) => item.id === payload.pricingRuleId,
+        );
+
+        if (!pricingRule) {
+          throw new Error("요금제를 찾을 수 없습니다.");
+        }
+
+        if (pricingRule.resourceType !== payload.resourceType) {
+          throw new Error("선택한 자원과 요금제가 맞지 않습니다.");
+        }
+
+        const policyMember =
+          payload.member ??
+          snapshotBeforeMutation.members.find(
+            (member) => member.id === payload.existingMemberId,
           );
 
-          if (!pricingRule) {
-            throw new Error("요금제를 찾을 수 없습니다.");
-          }
+        if (!policyMember) {
+          throw new Error("회원 정보를 입력해 주세요.");
+        }
+        operationLogContext = {
+          event: "mutation",
+          action,
+          resourceType: payload.resourceType,
+          member: policyMember,
+          requestId,
+        };
 
-          const policyMember =
-            payload.member ??
-            snapshotBeforeMutation.members.find(
-              (member) => member.id === payload.existingMemberId,
-            );
+        const sheetWriteStartedAt = Date.now();
+        let sheetTarget;
 
-          if (!policyMember) {
-            throw new Error("회원 정보를 입력해 주세요.");
-          }
-          operationLogContext = {
-            event: "mutation",
-            action,
-            resourceType: payload.resourceType,
-            member: policyMember,
-            requestId,
-          };
+        try {
+          sheetTarget = await appendKioskSubmissionToSheet(
+            {
+              member: policyMember,
+              metadata: payload.sheetMetadata,
+              resourceType: payload.resourceType,
+              pricingRule,
+            },
+            { pricingRules: snapshotBeforeMutation.pricingRules },
+          );
+        } finally {
+          timing.sheetWriteMs = Date.now() - sheetWriteStartedAt;
+        }
+        operationLogContext = {
+          ...operationLogContext,
+          sheetTarget: sheetTarget ?? undefined,
+        };
 
-          if (isGameResourceType(payload.resourceType)) {
-            const localLimitViolation = getDailyGameLimitViolation({
-              state: snapshotBeforeMutation,
-              identity: {
-                memberId: payload.existingMemberId,
-                member: payload.member,
-              },
-              selectedMinutes: pricingRule.minutes,
-            });
-
-            if (localLimitViolation) {
-              throw new Error(
-                formatDailyGameLimitMessage(
-                  localLimitViolation.remainingMinutes,
-                ),
-              );
-            }
-
-            let sheetUsage;
-
-            try {
-              sheetUsage = await getDailyGameSheetUsage({
-                member: policyMember,
-                pricingRules: snapshotBeforeMutation.pricingRules,
-              });
-            } catch (error) {
-              console.error("Daily game sheet usage lookup failed.", error);
-              throw new Error(
-                "오늘 컴퓨터·닌텐도·플스 이용 시간을 확인하지 못해 접수할 수 없어요. 선생님께 문의해 주세요.",
-              );
-            }
-
-            if (sheetUsage) {
-              const totalMinutes = sheetUsage.minutes + pricingRule.minutes;
-
-              if (totalMinutes > MAX_DAILY_GAME_MINUTES) {
-                throw new Error(
-                  formatDailyGameLimitMessage(
-                    Math.max(MAX_DAILY_GAME_MINUTES - sheetUsage.minutes, 0),
-                  ),
-                );
-              }
-            }
-          }
-
-          const sheetTarget = await appendKioskSubmissionToSheet({
-            member: policyMember,
-            metadata: payload.sheetMetadata,
-            resourceType: payload.resourceType,
-            pricingRule,
-          });
-          operationLogContext = {
-            ...operationLogContext,
-            sheetTarget: sheetTarget ?? undefined,
-          };
-
-          return enqueueVisit(payload);
+        const localCommitStartedAt = Date.now();
+        result = enqueueVisit({
+          ...payload,
+          skipLocalDailyGameLimitCheck: Boolean(sheetTarget),
         });
+        timing.localCommitMs = Date.now() - localCommitStartedAt;
+        logKioskIntakeTiming(timing, "success", requestId);
+        intakeTiming = null;
         break;
       }
       case "registerSpaceVisit": {
-        result = await withSerializedKioskIntake(async () => {
-          const payload = registerSpaceVisitSchema.parse(body.payload);
-          const snapshotBeforeMutation = getSnapshot();
-          const member =
-            payload.member ??
-            snapshotBeforeMutation.members.find(
-              (item) => item.id === payload.existingMemberId,
-            );
+        const timing: KioskIntakeTiming = {
+          action: "registerSpaceVisit",
+          resourceType: "space",
+          startedAt: Date.now(),
+          sheetWriteMs: 0,
+          localCommitMs: 0,
+        };
+        intakeTiming = timing;
+        const payload = registerSpaceVisitSchema.parse(body.payload);
+        const snapshotBeforeMutation = getSnapshot();
+        const member =
+          payload.member ??
+          snapshotBeforeMutation.members.find(
+            (item) => item.id === payload.existingMemberId,
+          );
 
-          if (!member) {
-            throw new Error("회원 정보를 입력해 주세요.");
-          }
-          operationLogContext = {
-            event: "mutation",
-            action,
-            resourceType: "space",
-            member,
-            requestId,
-          };
+        if (!member) {
+          throw new Error("회원 정보를 입력해 주세요.");
+        }
+        operationLogContext = {
+          event: "mutation",
+          action,
+          resourceType: "space",
+          member,
+          requestId,
+        };
 
-          const sheetTarget = await appendKioskSubmissionToSheet({
+        const sheetWriteStartedAt = Date.now();
+        let sheetTarget;
+
+        try {
+          sheetTarget = await appendKioskSubmissionToSheet({
             member,
             metadata: payload.sheetMetadata,
             resourceType: "space",
           });
-          operationLogContext = {
-            ...operationLogContext,
-            sheetTarget: sheetTarget ?? undefined,
-          };
+        } finally {
+          timing.sheetWriteMs = Date.now() - sheetWriteStartedAt;
+        }
+        operationLogContext = {
+          ...operationLogContext,
+          sheetTarget: sheetTarget ?? undefined,
+        };
 
-          return registerSpaceVisit(payload);
-        });
+        const localCommitStartedAt = Date.now();
+        result = registerSpaceVisit(payload);
+        timing.localCommitMs = Date.now() - localCommitStartedAt;
+        logKioskIntakeTiming(timing, "success", requestId);
+        intakeTiming = null;
         break;
       }
       case "recordPayment":
@@ -316,6 +326,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, result });
   } catch (error) {
+    if (intakeTiming) {
+      logKioskIntakeTiming(intakeTiming, "failure", requestId);
+      intakeTiming = null;
+    }
+
     if (error instanceof ZodError) {
       console.error("Mutation validation failed.", error.issues);
       await writeFailureLog(
