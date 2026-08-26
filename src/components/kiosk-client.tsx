@@ -131,6 +131,7 @@ const DEFAULT_FORM: MemberFormState = {
 const CURRENT_YEAR = new Date().getFullYear();
 const MIN_BIRTH_YEAR = CURRENT_YEAR - 25;
 const COMPLETION_TTS_PLAYBACK_RATE = 1.5;
+const COMPLETION_FALLBACK_AUDIO_PATH = "/audio/audio_0_접수_완료되었습니다_.mp3";
 const BIRTH_YEAR_OPTIONS = Array.from(
   { length: CURRENT_YEAR - MIN_BIRTH_YEAR + 1 },
   (_, index) => String(CURRENT_YEAR - index),
@@ -206,6 +207,10 @@ function getCompletionSpeechMessage(
         : RESOURCE_TYPE_LABELS[choice];
 
   return `${memberName.trim()}님, ${contentLabel} 접수 완료되었습니다.`;
+}
+
+function needsRecordedCompletionAudio() {
+  return /Android/i.test(window.navigator.userAgent);
 }
 
 const RESOURCE_CARD_THEME: Record<
@@ -401,6 +406,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
   const speechUnlockedRef = useRef(false);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const completionFallbackAudioRef = useRef<HTMLAudioElement | null>(null);
   const ttsBufferCacheRef = useRef<Map<string, AudioBuffer>>(new Map());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultsRef = useRef<HTMLDivElement>(null);
@@ -523,6 +529,47 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     }
 
     return context;
+  }, []);
+
+  const prepareCompletionFallbackAudio = useCallback(() => {
+    if (completionFallbackAudioRef.current) {
+      return;
+    }
+
+    const audio = new Audio(COMPLETION_FALLBACK_AUDIO_PATH);
+    audio.preload = "auto";
+    audio.muted = true;
+    audio.volume = 0;
+    completionFallbackAudioRef.current = audio;
+
+    void audio
+      .play()
+      .then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.muted = false;
+        audio.volume = 1;
+      })
+      .catch(() => {
+        completionFallbackAudioRef.current = null;
+      });
+  }, []);
+
+  const playCompletionFallbackAudio = useCallback(async () => {
+    const audio = completionFallbackAudioRef.current ?? new Audio(COMPLETION_FALLBACK_AUDIO_PATH);
+    completionFallbackAudioRef.current = audio;
+    audio.preload = "auto";
+    audio.muted = false;
+    audio.volume = 1;
+    audio.currentTime = 0;
+
+    try {
+      await audio.play();
+      return true;
+    } catch (error) {
+      console.warn("Kiosk completion fallback audio failed.", error);
+      return false;
+    }
   }, []);
 
   const resetFlow = useCallback(() => {
@@ -731,6 +778,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
     const unlockPlayback = () => {
       prepareSpeechSynthesis();
       prepareGeneratedTtsPlayback();
+      prepareCompletionFallbackAudio();
     };
 
     loadVoices();
@@ -745,7 +793,11 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
       window.removeEventListener("touchend", unlockPlayback);
       window.removeEventListener("click", unlockPlayback);
     };
-  }, [prepareGeneratedTtsPlayback, prepareSpeechSynthesis]);
+  }, [
+    prepareCompletionFallbackAudio,
+    prepareGeneratedTtsPlayback,
+    prepareSpeechSynthesis,
+  ]);
 
   const speakWithWebSpeech = useCallback((message: string) => {
     if (!("speechSynthesis" in window)) {
@@ -841,13 +893,26 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
   const announceCompletion = useCallback(
     async (message: string) => {
+      if (needsRecordedCompletionAudio()) {
+        const playedFallback = await playCompletionFallbackAudio();
+
+        if (!playedFallback) {
+          speakWithWebSpeech(message);
+        }
+        return;
+      }
+
       const playedGeneratedTts = await playGeneratedTts(message);
 
       if (!playedGeneratedTts) {
-        speakWithWebSpeech(message);
+        const playedFallback = await playCompletionFallbackAudio();
+
+        if (!playedFallback) {
+          speakWithWebSpeech(message);
+        }
       }
     },
-    [playGeneratedTts, speakWithWebSpeech],
+    [playCompletionFallbackAudio, playGeneratedTts, speakWithWebSpeech],
   );
 
   const speakKioskMessage = useCallback(
@@ -888,6 +953,7 @@ export function KioskClient({ initial }: { initial: SnapshotEnvelope }) {
 
     prepareSpeechSynthesis();
     prepareGeneratedTtsPlayback();
+    prepareCompletionFallbackAudio();
 
     if (!canSubmit || !resourceChoice) {
       showBlockingDialog(
